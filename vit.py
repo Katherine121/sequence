@@ -5,13 +5,12 @@ from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
 
-class ResNet(nn.Module):
+class Extractor(nn.Module):
 
-    def __init__(self, backbone):
-        super(ResNet, self).__init__()
+    def __init__(self, backbone, dim):
+        super(Extractor, self).__init__()
         self.backbone = backbone
-        self.in_features = backbone.fc.in_features
-        self.backbone.fc = nn.Identity()
+        self.backbone.classifier = nn.Identity()
 
     def forward(self, x):
         x = self.backbone(x)
@@ -105,11 +104,13 @@ class ViT(nn.Module):
                  dim, depth, heads, mlp_dim, pool, len,
                  dim_head, dropout=0., emb_dropout=0.):
         super().__init__()
-        self.data_model = ResNet(backbone=backbone)
-        self.feature_dim = self.data_model.in_features
+        self.extractor = Extractor(backbone, dim)
+        self.extractor_dim = 576
         self.len = len
 
-        self.ang_linear = nn.Linear(num_classes2, self.feature_dim)
+        # 576+2
+        self.img_linear = nn.Linear(578, dim)
+        # self.ang_param = nn.Parameter(torch.randn(1, self.len, dim))
 
         # image_height, image_width = image_size
         # patch_height, patch_width = patch_size
@@ -132,32 +133,37 @@ class ViT(nn.Module):
         self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)
 
         self.pool = pool
-        self.to_latent = nn.Identity()
+        # self.to_latent = nn.Identity()
 
         self.mlp_head_target = nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, num_classes1)
         )
         self.mlp_head_angle = nn.Sequential(
+            # cbapd
             nn.LayerNorm(dim),
-            nn.Linear(dim, num_classes2)
+            nn.Hardtanh(),
+            nn.Linear(dim, dim // 2),
+            nn.Hardtanh(),
+            nn.Linear(dim // 2, num_classes2),
+            nn.Softmax(dim=-1)
         )
 
     def forward(self, img, ang):
         # 试试使用HOG特征
-        # b,len,3,224,224->b*len,3,224,224->b*len,512->b,len,512
-        img = self.data_model(img.view(-1, 3, 224, 224))
-        img = img.view(-1, self.len, self.feature_dim)
+        # b,len,3,224,224->b*len,3,224,224->b*len,576->b,len,576
+        img = self.extractor(img.view(-1, 3, 224, 224))
+        img = img.view(-1, self.len, self.extractor_dim)
 
-        # b,len,181->b,len,512
-        ang[:, -1, :] = 0
-        ang = self.ang_linear(ang)
-        # b,len,512->b,len,512
-        img += ang
+        # 不要终点的偏转方向
+        for i in range(1, self.len):
+            ang[:, i, :] += ang[:, i - 1, :]
+        ang[:, 0, :] = 0
 
-        # # b,len,1024->b,len*64,16->b,len*64,512
-        # # 试试不加位置信息
-        # img = self.to_patch_embedding(img)
+        # b,len,576->b,len,578
+        img = torch.cat((img, ang), dim=-1)
+        # b,len,578->b,len,512
+        img = self.img_linear(img)
 
         b, n, _ = img.shape
         cls_tokens = repeat(self.cls_token, '1 1 d -> b 1 d', b=b)
@@ -170,5 +176,5 @@ class ViT(nn.Module):
 
         img = img.mean(dim=1) if self.pool == 'mean' else img[:, 0]
 
-        img = self.to_latent(img)
+        # img = self.to_latent(img)
         return self.mlp_head_target(img), self.mlp_head_angle(img)

@@ -188,26 +188,48 @@ class OrderTrainDataset(Dataset):
         self.transform = transform
         self.num_classes2 = num_classes2
         self.input_len = input_len
+        dict1 = {}
 
         res_seq = []
         files = os.listdir("datasets")
         files.sort()
-        for i in range(0, int(0.8 * len(files))):
-            path_seq = []
-            file = files[i]
-            full_file_path = os.path.join("datasets", file)
-            f = open(full_file_path, 'rt')
-            for line in f:
-                line = line.strip('\n')
-                line = line.split(' ')
-                line = [line[0], float(line[1]) + 90, float(line[2]), float(line[3]) + 90]
-                path_seq.append(line)
+        for i in range(0, len(files)):
+            if i % 5 != 0:
+                path_seq = []
+                file = files[i]
+                full_file_path = os.path.join("datasets", file)
+                f = open(full_file_path, 'rt')
+                for line in f:
+                    line = line.strip('\n')
+                    line = line.split(' ')
 
-            for i in range(0, len(path_seq) - self.input_len):
-                res_seq.append(path_seq[i: i + self.input_len])
+                    # processed_angle1 = float(line[1]) + 90
+                    # if processed_angle1 == 180:
+                    #     processed_angle1 = processed_angle1 // 5 - 1
+                    # else:
+                    #     processed_angle1 = processed_angle1 // 5
+                    # processed_angle2 = float(line[3]) + 90
+                    # if processed_angle2 == 180:
+                    #     processed_angle2 = processed_angle2 // 5 - 1
+                    # else:
+                    #     processed_angle2 = processed_angle2 // 5
+
+                    line = [line[0], float(line[1]), float(line[2]), float(line[3])]
+                    path_seq.append(line)
+
+                for j in range(0, len(path_seq) - self.input_len):
+                    res_seq.append(path_seq[j: j + self.input_len])
+                    # if dict1.get(int(res_seq[-1][-1][-1])) is None:
+                    #     dict1[int(res_seq[-1][-1][-1])] = 1
+                    # else:
+                    #     dict1[int(res_seq[-1][-1][-1])] += 1
 
         print(len(res_seq))
         self.imgs = res_seq
+
+        # for i in range(0, 36):
+        #     if dict1.get(i) is not None:
+        #         print(str(i) + " " + str(dict1.get(i)))
 
     # 返回数据集大小
     def __len__(self):
@@ -240,26 +262,48 @@ class OrderTestDataset(Dataset):
         self.transform = transform
         self.num_classes2 = num_classes2
         self.input_len = input_len
+        dict1 = {}
 
         res_seq = []
         files = os.listdir("datasets")
         files.sort()
-        for i in range(int(0.8 * len(files)), len(files)):
-            path_seq = []
-            file = files[i]
-            full_file_path = os.path.join("datasets", file)
-            f = open(full_file_path, 'rt')
-            for line in f:
-                line = line.strip('\n')
-                line = line.split(' ')
-                line = [line[0], float(line[1]) + 90, float(line[2]), float(line[3]) + 90]
-                path_seq.append(line)
+        for i in range(0, len(files)):
+            if i % 5 == 0:
+                path_seq = []
+                file = files[i]
+                full_file_path = os.path.join("datasets", file)
+                f = open(full_file_path, 'rt')
+                for line in f:
+                    line = line.strip('\n')
+                    line = line.split(' ')
 
-            for i in range(0, len(path_seq) - self.input_len):
-                res_seq.append(path_seq[i: i + self.input_len])
+                    # processed_angle1 = float(line[1]) + 90
+                    # if processed_angle1 == 180:
+                    #     processed_angle1 = processed_angle1 // 5 - 1
+                    # else:
+                    #     processed_angle1 = processed_angle1 // 5
+                    # processed_angle2 = float(line[3]) + 90
+                    # if processed_angle2 == 180:
+                    #     processed_angle2 = processed_angle2 // 5 - 1
+                    # else:
+                    #     processed_angle2 = processed_angle2 // 5
+
+                    line = [line[0], float(line[1]), float(line[2]), float(line[3])]
+                    path_seq.append(line)
+
+                for j in range(0, len(path_seq) - self.input_len):
+                    res_seq.append(path_seq[j: j + self.input_len])
+                    # if dict1.get(int(res_seq[-1][-1][-1])) is None:
+                    #     dict1[int(res_seq[-1][-1][-1])] = 1
+                    # else:
+                    #     dict1[int(res_seq[-1][-1][-1])] += 1
 
         print(len(res_seq))
         self.imgs = res_seq
+
+        # for i in range(0, 36):
+        #     if dict1.get(i) is not None:
+        #         print(str(i) + " " + str(dict1.get(i)))
 
     # 返回数据集大小
     def __len__(self):
@@ -289,6 +333,6 @@ class OrderTestDataset(Dataset):
 
 
 if __name__ == '__main__':
-    write_img_angle(k=100)
-    # train_dataset = OrderTrainDataset(transform=None)
-    # test_dataset = OrderTestDataset(transform=None)
+    # write_img_angle(k=100)
+    train_dataset = OrderTrainDataset(transform=None, num_classes2=2, input_len=5)
+    test_dataset = OrderTestDataset(transform=None, num_classes2=2, input_len=5)

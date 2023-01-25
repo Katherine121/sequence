@@ -38,7 +38,7 @@ from vit import ViT
 torch.set_printoptions(precision=8)
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('--save-dir', default='save')
+parser.add_argument('--save-dir', default='save4')
 parser.add_argument('-j', '--workers', default=0, type=int, metavar='N',
                     help='number of data loading workers (default: 32)')
 parser.add_argument('--epochs', default=1000, type=int, metavar='N',
@@ -52,7 +52,8 @@ parser.add_argument('-b', '--batch-size', default=256, type=int,
                          'batch size of all GPUs on all nodes when '
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--num_classes1', default=100, type=int)
-parser.add_argument('--num_classes2', default=181, type=int)
+parser.add_argument('--num_classes2', default=2, type=int)
+parser.add_argument('--thresh', default=2.5, type=float)
 parser.add_argument('--len', default=5, type=int)
 # parser.add_argument('--loss_alpha', default=0, type=float)
 # parser.add_argument('--temp', default=0.05, type=float)
@@ -63,8 +64,8 @@ parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
 parser.add_argument('--wd', default=0.1, type=float)
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
-parser.add_argument('--data_model_path', default='data_model/model_acc_best.pth.tar', type=str, metavar='PATH',
-                    help='path to latest checkpoint (default: none)')
+# parser.add_argument('--data_model_path', default='data_model/model_acc_best.pth.tar', type=str, metavar='PATH',
+#                     help='path to latest checkpoint (default: none)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
@@ -153,7 +154,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # create model
     print("=> creating model")
-    backbone = torchvision_models.resnet18()
+    backbone = torchvision_models.mobilenet_v3_small(pretrained=True)
 
     model = ViT(
         backbone=backbone,
@@ -169,13 +170,6 @@ def main_worker(gpu, ngpus_per_node, args):
         dropout=0.1,
         emb_dropout=0.1
     )
-    # model = LSTM(backbone=backbone,
-    #              num_classes1=args.num_classes1,
-    #              num_classes2=args.num_classes2,
-    #              hidden_size=256,
-    #              num_layers=6,
-    #              len=5,
-    #              dropout=0.1)
 
     # load from pre-trained, before DistributedDataParallel constructor
     if args.pretrained:
@@ -194,7 +188,8 @@ def main_worker(gpu, ngpus_per_node, args):
     model = model.cuda(args.gpu)
     print(model)
 
-    # flops, params = profile(model, (torch.randn((1, 5, 3, 224, 224)).cuda(), torch.randn((1, 5, 181)).cuda()))
+    # # data_model9117M,11.18M; model9193M,23.87M
+    # flops, params = profile(model, (torch.randn((1, 5, 3, 224, 224)).cuda(), torch.randn((1, 5, 36)).cuda()))
     # print('flops: ', flops, 'params: ', params)
     # print('flops: %.2f M, params: %.2f M' % (flops / 1000000.0, params / 1000000.0))
 
@@ -225,7 +220,8 @@ def main_worker(gpu, ngpus_per_node, args):
         model = torch.nn.DataParallel(model).cuda()
 
     # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+    criterion1 = nn.CrossEntropyLoss().cuda(args.gpu)
+    criterion2 = nn.MSELoss().cuda(args.gpu)
 
     # optimize only the linear classifier
     parameters = list(filter(lambda p: p.requires_grad, model.parameters()))
@@ -236,24 +232,24 @@ def main_worker(gpu, ngpus_per_node, args):
     best_acc1 = 0
     best_acc2 = 0
 
-    if args.data_model_path:
-        print("=> loading data_model checkpoint '{}'".format(args.data_model_path))
-        checkpoint = torch.load(args.data_model_path, map_location="cpu")
-        state_dict = checkpoint['state_dict']
-
-        for k in list(state_dict.keys()):
-            # 把module.换成data_model.
-            if k.startswith('module.'):
-                state_dict["data_model." + k[len("module."):]] = state_dict[k]
-            # delete renamed or unused k
-            del state_dict[k]
-
-        model.load_state_dict(state_dict, strict=False)
-        print("=> loaded data_model '{}'".format(args.data_model_path))
-
-    for name, param in model.named_parameters():
-        if "data_model" in name:
-            param.requires_grad = False
+    # if args.data_model_path:
+    #     print("=> loading data_model checkpoint '{}'".format(args.data_model_path))
+    #     checkpoint = torch.load(args.data_model_path, map_location="cpu")
+    #     state_dict = checkpoint['state_dict']
+    #
+    #     for k in list(state_dict.keys()):
+    #         # 把module.换成data_model.
+    #         if k.startswith('module.'):
+    #             state_dict["data_model." + k[len("module."):]] = state_dict[k]
+    #         # delete renamed or unused k
+    #         del state_dict[k]
+    #
+    #     model.load_state_dict(state_dict, strict=False)
+    #     print("=> loaded data_model '{}'".format(args.data_model_path))
+    #
+    # for name, param in model.named_parameters():
+    #     if "data_model" in name:
+    #         param.requires_grad = False
 
     if args.resume:
         if os.path.isfile(args.resume):
@@ -290,6 +286,11 @@ def main_worker(gpu, ngpus_per_node, args):
 
     train_transform = transforms.Compose([
         transforms.RandomResizedCrop((224, 224)),
+        transforms.ToTensor(),
+        normalize,
+    ])
+    train_transform_aug = transforms.Compose([
+        transforms.RandomResizedCrop((224, 224)),
         AutoAugment(),
         transforms.ToTensor(),
         normalize,
@@ -300,9 +301,8 @@ def main_worker(gpu, ngpus_per_node, args):
         transforms.ToTensor(),
         normalize,
     ])
-    train_dataset = OrderTrainDataset(transform=train_transform, num_classes2=args.num_classes2, input_len=args.len)
-    for i in range(0, 3):
-        train_dataset += OrderTrainDataset(transform=train_transform, num_classes2=args.num_classes2, input_len=args.len)
+    train_dataset = OrderTrainDataset(transform=train_transform, num_classes2=args.num_classes2, input_len=args.len) + \
+                    OrderTrainDataset(transform=train_transform_aug, num_classes2=args.num_classes2, input_len=args.len)
     test_dataset = OrderTestDataset(transform=val_transform, num_classes2=args.num_classes2, input_len=args.len)
 
     if args.distributed:
@@ -323,7 +323,7 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler.set_epoch(epoch)
 
         # train for one epoch
-        loss = train(train_loader, model, criterion, optimizer, lr_scheduler, epoch, args)
+        loss, loss1, loss2 = train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, epoch, args)
 
         # evaluate on validation set
         target_acc1, angle_acc2 = validate(val_loader, model, args)
@@ -341,7 +341,7 @@ def main_worker(gpu, ngpus_per_node, args):
             if os.path.exists(args.save_dir) is False:
                 os.mkdir(args.save_dir)
             with open(args.save_dir + "/loss.txt", "a") as file1:
-                file1.write(str(loss) + "\n")
+                file1.write(str(loss) + " " + str(loss1) + " " + str(loss2) + "\n")
             file1.close()
             with open(args.save_dir + "/target_acc.txt", "a") as file1:
                 file1.write(str(target_acc1) + " " + str(best_acc1) + "\n")
@@ -360,19 +360,20 @@ def main_worker(gpu, ngpus_per_node, args):
             }, target_is_best=target_is_best, angle_is_best=angle_is_best, args=args)
 
 
-def train(train_loader, model, criterion, optimizer, lr_scheduler, epoch, args):
+def train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     target_top1 = AverageMeter('TargetAcc@1', ':6.2f')
     target_top5 = AverageMeter('TargetAcc@5', ':6.2f')
     angle_top1 = AverageMeter('AngleAcc@1', ':6.2f')
-    angle_top5 = AverageMeter('AngleAcc@1', ':6.2f')
 
     progress = ProgressMeter(
         len(train_loader),
-        [batch_time, losses, target_top1, target_top5, angle_top1, angle_top5],
+        [batch_time, losses, target_top1, target_top5, angle_top1],
         prefix="Epoch: [{}]".format(epoch))
     total_loss = 0
+    total_loss1 = 0
+    total_loss2 = 0
 
     """
     Switch to eval mode:
@@ -389,31 +390,35 @@ def train(train_loader, model, criterion, optimizer, lr_scheduler, epoch, args):
             # b,len,3,224,224
             images = images.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
             # b,len
-            angles = angles.cuda(args.gpu, non_blocking=True).to(dtype=torch.long)
+            angles = angles.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
             # b
             target = target.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
             # b
-            target_angle = target_angle.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
+            target_angle = target_angle.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
 
-        # b,len->b,len,181
-        angles = F.one_hot(angles, num_classes=args.num_classes2)
-        angles = angles.to(dtype=torch.float32)
+        # -90~90 b,len,1
+        sins = torch.sin(angles / 180 * torch.pi).unsqueeze(dim=-1)
+        coss = torch.cos(angles / 180 * torch.pi).unsqueeze(dim=-1)
+        target_sins = torch.sin(target_angle / 180 * torch.pi).unsqueeze(dim=-1)
+        target_coss = torch.cos(target_angle / 180 * torch.pi).unsqueeze(dim=-1)
 
-        # b,len,3,224,224+b,len,181
-        output1, output2 = model(images, angles)
-        loss = criterion(output1, target) + \
-               criterion(output2, target_angle)
+        # b,len,3,224,224+b,len,2
+        output1, output2 = model(images, torch.cat((sins, coss), dim=-1))
+        loss1 = criterion1(output1, target)
+        loss2 = criterion2(output2, torch.cat((target_sins, target_coss), dim=-1))
+        loss = loss1 + loss2
 
         # measure accuracy and record loss
         target_acc1, target_acc5 = accuracy(output1, target, topk=(1, 5))
-        angle_acc1, angle_acc5 = accuracy(output2, target_angle, topk=(1, 5))
+        preds = angle_diff(output2, target_angle, threshold=args.thresh)
         losses.update(loss.item(), images.size(0))
         target_top1.update(target_acc1[0], images.size(0))
         target_top5.update(target_acc5[0], images.size(0))
-        angle_top1.update(angle_acc1[0], images.size(0))
-        angle_top5.update(angle_acc5[0], images.size(0))
+        angle_top1.update(preds * 100 / images.size(0), images.size(0))
 
         total_loss += loss.item()
+        total_loss1 += loss1.item()
+        total_loss2 += loss2.item()
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -427,7 +432,7 @@ def train(train_loader, model, criterion, optimizer, lr_scheduler, epoch, args):
 
         if i % args.print_freq == 0:
             progress.display(i)
-    return float(total_loss / (i + 1))
+    return float(total_loss / (i + 1)), float(total_loss1 / (i + 1)), float(total_loss2 / (i + 1))
 
 
 def validate(val_loader, model, args):
@@ -444,18 +449,18 @@ def validate(val_loader, model, args):
                 # b,len,3,224,224
                 images = images.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
                 # b,len
-                angles = angles.cuda(args.gpu, non_blocking=True).to(dtype=torch.long)
+                angles = angles.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
                 # b
                 target = target.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
                 # b
-                target_angle = target_angle.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
+                target_angle = target_angle.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
 
-            # b,len->b,len,181
-            angles = F.one_hot(angles, num_classes=args.num_classes2)
-            angles = angles.to(dtype=torch.float32)
+            # -90~90 b,len,1
+            sins = torch.sin(angles / 180 * torch.pi).unsqueeze(dim=-1)
+            coss = torch.cos(angles / 180 * torch.pi).unsqueeze(dim=-1)
 
-            # b,len,3,224,224+b,len,181
-            output1, output2 = model(images, angles)
+            # b,len,3,224,224+b,len,2
+            output1, output2 = model(images, torch.cat((sins, coss), dim=-1))
 
             # _,是batch_size*概率，preds是batch_size*最大概率的列号
             _, preds = output1.max(1)
@@ -464,9 +469,8 @@ def validate(val_loader, model, args):
             total_correct += num_correct.item()
             total_samples += num_samples
 
-            _, preds = output2.max(1)
-            num_correct = (preds == target_angle).sum()
-            total_correct_angle += num_correct.item()
+            preds = angle_diff(output2, target_angle, threshold=args.thresh)
+            total_correct_angle += preds.item()
 
     acc1 = float(total_correct / total_samples)
     acc2 = float(total_correct_angle / total_samples)
@@ -490,6 +494,20 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+
+
+def angle_diff(output, target, threshold):
+    # b,2->b,1
+    output = output[:, 0] / output[:, 1]
+    output = torch.atan(output)
+    output = output * 180 / torch.pi
+
+    diff = torch.abs(output - target)
+    # 找到偏差小于阈值的索引
+    diff = torch.lt(diff, threshold)
+    diff = diff.sum()
+    # 返回batch内小于阈值的角度
+    return diff
 
 
 def save_checkpoint(state, target_is_best, angle_is_best, args):
