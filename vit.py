@@ -110,21 +110,8 @@ class ViT(nn.Module):
 
         # 576+2
         self.img_linear = nn.Linear(578, dim)
-        # self.ang_param = nn.Parameter(torch.randn(1, self.len, dim))
 
-        # image_height, image_width = image_size
-        # patch_height, patch_width = patch_size
-
-        # assert image_height % patch_height == 0 and image_width % patch_width == 0, 'Image dimensions must be divisible by the patch size.'
-
-        # num_patches = self.len * (image_height // patch_height) * (image_width // patch_width)
-        # patch_dim = patch_height * patch_width
         assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
-
-        # self.to_patch_embedding = nn.Sequential(
-        #     Rearrange('b c (p1 p2) -> b (c p1) p2', p2=patch_dim),
-        #     nn.Linear(patch_dim, dim),
-        # )
 
         self.pos_embedding = nn.Parameter(torch.randn(1, 1 + self.len, dim))
         self.cls_token = nn.Parameter(torch.randn(1, 1, dim))
@@ -133,7 +120,6 @@ class ViT(nn.Module):
         self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)
 
         self.pool = pool
-        # self.to_latent = nn.Identity()
 
         self.mlp_head_target = nn.Sequential(
             nn.LayerNorm(dim),
@@ -145,8 +131,7 @@ class ViT(nn.Module):
             nn.Hardtanh(),
             nn.Linear(dim, dim // 2),
             nn.Hardtanh(),
-            nn.Linear(dim // 2, num_classes2),
-            nn.Softmax(dim=-1)
+            nn.Linear(dim // 2, num_classes2)
         )
 
     def forward(self, img, ang):
@@ -155,10 +140,15 @@ class ViT(nn.Module):
         img = self.extractor(img.view(-1, 3, 224, 224))
         img = img.view(-1, self.len, self.extractor_dim)
 
-        # 不要终点的偏转方向
+        # # 不要终点的偏转方向
+        # for i in range(1, self.len):
+        #     ang[:, i, :] += ang[:, i - 1, :]
+        # ang[:, 0, :] = 0
+        # 5不变，4=3,3=2,2=1,1=0，0归为0
+
+        ang[:, self.len - 2: self.len, :] = 0
         for i in range(1, self.len):
             ang[:, i, :] += ang[:, i - 1, :]
-        ang[:, 0, :] = 0
 
         # b,len,576->b,len,578
         img = torch.cat((img, ang), dim=-1)
@@ -176,5 +166,4 @@ class ViT(nn.Module):
 
         img = img.mean(dim=1) if self.pool == 'mean' else img[:, 0]
 
-        # img = self.to_latent(img)
         return self.mlp_head_target(img), self.mlp_head_angle(img)

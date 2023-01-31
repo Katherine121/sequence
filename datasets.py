@@ -43,16 +43,12 @@ def write_img_angle(k):
                 full_dir_path2 = os.path.join(path2, str(j))
                 full_file_path2 = os.path.join(full_dir_path2, file1)
                 if os.path.exists(full_file_path2):
+                    # 当前图像，当前标签，当前纬度，当前经度
                     path.append((full_file_path1, j, eval(lat_pos), eval(lon_pos)))
                     break
 
         res.append(path)
 
-    # 需要选择下一个里程碑作为标签
-    a = 10000
-    b = -10000
-    c = 10000
-    d = -10000
     res_delta = []
     for path in res:
         path_delta = []
@@ -61,134 +57,66 @@ def write_img_angle(k):
             for j in range(i + 1, len(path)):
                 # 如果找到了下一个里程碑
                 if path[j][1] != path[i][1]:
-                    # 如果不是起点
-                    if i > 0:
-                        # 计算里程碑位置距离当前位置的角度
-                        lat_delta2 = path[j][2] - path[i][2]
-                        lon_delta2 = path[j][3] - path[i][3]
-                        tan2 = float(lat_delta2 / (lon_delta2 + 1e-10))
-                        # -90~90°
-                        angel2 = math.atan(tan2) / math.pi * 180
+                    # 计算里程碑位置距离当前位置的距离
+                    lat_delta = (path[j][2] - path[i][2]) * 111000
+                    lon_delta = (path[j][3] - path[i][3]) * 111000 * math.cos(path[i][2] / 180 * math.pi)
 
-                        # x正轴：-180~180°
-                        if lat_delta2 >= 0 and lon_delta2 >= 0:
-                            angel2 = angel2
-                        elif lat_delta2 >= 0 and lon_delta2 <= 0:
-                            angel2 += 180
-                        elif lat_delta2 <= 0 and lon_delta2 >= 0:
-                            angel2 = angel2
-                        elif lat_delta2 <= 0 and lon_delta2 <= 0:
-                            angel2 -= 180
-
-                        # 计算当前位置距离上一时刻位置的角度
-                        lat_delta1 = path[i][2] - path[i - 1][2]
-                        lon_delta1 = path[i][3] - path[i - 1][3]
-                        tan1 = float(lat_delta1 / (lon_delta1 + 1e-10))
-                        # -90~90°
-                        angel1 = math.atan(tan1) / math.pi * 180
-
-                        # x正轴：-180~180°
-                        if lat_delta1 >= 0 and lon_delta1 >= 0:
-                            angel1 = angel1
-                        elif lat_delta1 >= 0 and lon_delta1 <= 0:
-                            angel1 += 180
-                        elif lat_delta1 <= 0 and lon_delta1 >= 0:
-                            angel1 = angel1
-                        elif lat_delta1 <= 0 and lon_delta1 <= 0:
-                            angel1 -= 180
-
-                        # 计算角度差
-                        angle_delta = angel1 - angel2
-                    # 如果是起点
-                    else:
-                        angle_delta = 0
-
-                    path_delta.append((path[i][0], path[j][1], angle_delta))
+                    sum = math.sqrt(lat_delta * lat_delta + lon_delta * lon_delta)
+                    sin = lat_delta / sum
+                    cos = lon_delta / sum
+                    # 里程碑编号，飞到里程碑时纬度偏转多少，经度偏转多少
+                    stone_part = (path[j][1], sin, cos)
 
                     # 找到了下一个里程碑就退出
                     flag = True
                     break
 
-            # 还要计算下一时刻图像的偏转方向
             # 如果不是终点
             if flag is True:
-                # 如果不是起点
-                if i > 0:
-                    # 计算下一时刻位置距离当前位置的角度
-                    lat_delta2 = path[i + 1][2] - path[i][2]
-                    lon_delta2 = path[i + 1][3] - path[i][3]
-                    tan2 = float(lat_delta2 / (lon_delta2 + 1e-10))
-                    # -90~90°
-                    angel2 = math.atan(tan2) / math.pi * 180
+                # 还要计算下一时刻的偏转方向
+                # 计算下一时刻位置距离当前位置的角度
+                lat_delta = (path[i + 1][2] - path[i][2]) * 111000
+                lon_delta = (path[i + 1][3] - path[i][3]) * 111000 * math.cos(path[i][2] / 180 * math.pi)
 
-                    # x正轴：-180~180°
-                    if lat_delta2 >= 0 and lon_delta2 >= 0:
-                        angel2 = angel2
-                    elif lat_delta2 >= 0 and lon_delta2 <= 0:
-                        angel2 += 180
-                    elif lat_delta2 <= 0 and lon_delta2 >= 0:
-                        angel2 = angel2
-                    elif lat_delta2 <= 0 and lon_delta2 <= 0:
-                        angel2 -= 180
+                sum = math.sqrt(lat_delta * lat_delta + lon_delta * lon_delta)
+                sin = lat_delta / sum
+                cos = lon_delta / sum
+                # 飞到下一个时刻时纬度偏转多少，经度偏转多少
+                next_part = (sin, cos)
 
-                    # 计算当前位置距离上一时刻位置的角度
-                    lat_delta1 = path[i][2] - path[i - 1][2]
-                    lon_delta1 = path[i][3] - path[i - 1][3]
-                    tan1 = float(lat_delta1 / (lon_delta1 + 1e-10))
-                    # -90~90°
-                    angel1 = math.atan(tan1) / math.pi * 180
+                # 还要计算到终点的偏转方向
+                # 计算下一时刻位置距离当前位置的角度
+                lat_delta = (path[-1][2] - path[i][2]) * 111000
+                lon_delta = (path[-1][3] - path[i][3]) * 111000 * math.cos(path[i][2] / 180 * math.pi)
 
-                    # x正轴：-180~180°
-                    if lat_delta1 >= 0 and lon_delta1 >= 0:
-                        angel1 = angel1
-                    elif lat_delta1 >= 0 and lon_delta1 <= 0:
-                        angel1 += 180
-                    elif lat_delta1 <= 0 and lon_delta1 >= 0:
-                        angel1 = angel1
-                    elif lat_delta1 <= 0 and lon_delta1 <= 0:
-                        angel1 -= 180
+                sum = math.sqrt(lat_delta * lat_delta + lon_delta * lon_delta)
+                sin = lat_delta / sum
+                cos = lon_delta / sum
+                # 终点路径，飞到终点时纬度偏转多少，经度偏转多少
+                dest_part = (path[-1][0], sin, cos)
 
-                    # 计算角度差
-                    angle_delta = angel1 - angel2
-                # 如果是起点
-                else:
-                    angle_delta = 0
-
-                path_delta[-1] = (path_delta[-1][0], angle_delta, path_delta[-1][1], path_delta[-1][2])
-
-                if path_delta[-1][1] < a:
-                    a = path_delta[-1][1]
-                if path_delta[-1][1] > b:
-                    b = path_delta[-1][1]
-                if path_delta[-1][3] < c:
-                    c = path_delta[-1][3]
-                if path_delta[-1][3] > d:
-                    d = path_delta[-1][3]
+                path_delta.append((path[i][0], next_part, dest_part, stone_part))
 
         res_delta.append(path_delta)
-
-    print(a)
-    print(b)
-    print(c)
-    print(d)
 
     if os.path.exists("datasets") is False:
         os.mkdir("datasets")
     for path in res_delta:
         for pic in path:
-            name, angle, stone, stone_angle = pic[0], pic[1], pic[2], pic[3]
+            name, next_part, dest_part, stone_part = pic[0], pic[1], pic[2], pic[3]
             new_txt_name = name[len("processOrder/order/"):len("processOrder/order/") + 5]
             with open("datasets/" + new_txt_name + ".txt", "a") as file1:
-                file1.write(name + " " + str(angle) + " " + str(stone) + " " + str(stone_angle) + "\n")
+                file1.write(name + " " + str(next_part[0]) + " " + str(next_part[1]) + " " +
+                            dest_part[0] + " " + str(dest_part[1]) + " " + str(dest_part[2]) + " " +
+                            str(stone_part[0]) + " " + str(stone_part[1]) + " " + str(stone_part[2]) + "\n"
+                            )
             file1.close()
 
 
 class OrderTrainDataset(Dataset):
-    def __init__(self, transform, num_classes2, input_len):
+    def __init__(self, transform, input_len):
         self.transform = transform
-        self.num_classes2 = num_classes2
         self.input_len = input_len
-        dict1 = {}
 
         res_seq = []
         files = os.listdir("datasets")
@@ -203,33 +131,17 @@ class OrderTrainDataset(Dataset):
                     line = line.strip('\n')
                     line = line.split(' ')
 
-                    # processed_angle1 = float(line[1]) + 90
-                    # if processed_angle1 == 180:
-                    #     processed_angle1 = processed_angle1 // 5 - 1
-                    # else:
-                    #     processed_angle1 = processed_angle1 // 5
-                    # processed_angle2 = float(line[3]) + 90
-                    # if processed_angle2 == 180:
-                    #     processed_angle2 = processed_angle2 // 5 - 1
-                    # else:
-                    #     processed_angle2 = processed_angle2 // 5
-
-                    line = [line[0], float(line[1]), float(line[2]), float(line[3])]
+                    line = [line[0], [float(line[1]), float(line[2])],
+                            line[3], [float(line[4]), float(line[5])],
+                            int(line[6]), [float(line[7]), float(line[8])]
+                            ]
                     path_seq.append(line)
 
                 for j in range(0, len(path_seq) - self.input_len):
                     res_seq.append(path_seq[j: j + self.input_len])
-                    # if dict1.get(int(res_seq[-1][-1][-1])) is None:
-                    #     dict1[int(res_seq[-1][-1][-1])] = 1
-                    # else:
-                    #     dict1[int(res_seq[-1][-1][-1])] += 1
 
         print(len(res_seq))
         self.imgs = res_seq
-
-        # for i in range(0, 36):
-        #     if dict1.get(i) is not None:
-        #         print(str(i) + " " + str(dict1.get(i)))
 
     # 返回数据集大小
     def __len__(self):
@@ -237,10 +149,10 @@ class OrderTrainDataset(Dataset):
 
     # 打开index对应图片进行预处理后return回处理后的图片和标签
     def __getitem__(self, index):
-        # len, 4
+        # len, 5
         item = self.imgs[index]
         imgs = None
-        angles = []
+        next_angles = []
         for i in range(0, self.input_len):
             img = item[i][0]
             img = Image.open(img)
@@ -251,18 +163,26 @@ class OrderTrainDataset(Dataset):
             else:
                 imgs = torch.cat((imgs, img), dim=0)
 
-            angles.append(item[i][1])
+            next_angles.append(item[i][1])
 
-        angles = torch.tensor(angles, dtype=torch.int)
-        return imgs, angles, item[-1][2], item[-1][3]
+        # 第五张输入图像对应的终点图像
+        dest_img = Image.open(item[-1][2])
+        dest_img = dest_img.convert('RGB')
+        dest_img = self.transform(dest_img).unsqueeze(dim=0)
+        imgs = torch.cat((imgs, dest_img), dim=0)
+        # 第五张输入图像对应的终点偏转方向
+        next_angles.append(item[-1][3])
+        next_angles = torch.tensor(next_angles, dtype=torch.float)
+
+        stone_angles = torch.tensor(item[-1][5], dtype=torch.float)
+        # 输入六张图像，六对偏转方向，一个里程碑编号，一对里程碑偏转方向
+        return imgs, next_angles, item[-1][4], stone_angles
 
 
 class OrderTestDataset(Dataset):
-    def __init__(self, transform, num_classes2, input_len):
+    def __init__(self, transform, input_len):
         self.transform = transform
-        self.num_classes2 = num_classes2
         self.input_len = input_len
-        dict1 = {}
 
         res_seq = []
         files = os.listdir("datasets")
@@ -277,45 +197,30 @@ class OrderTestDataset(Dataset):
                     line = line.strip('\n')
                     line = line.split(' ')
 
-                    # processed_angle1 = float(line[1]) + 90
-                    # if processed_angle1 == 180:
-                    #     processed_angle1 = processed_angle1 // 5 - 1
-                    # else:
-                    #     processed_angle1 = processed_angle1 // 5
-                    # processed_angle2 = float(line[3]) + 90
-                    # if processed_angle2 == 180:
-                    #     processed_angle2 = processed_angle2 // 5 - 1
-                    # else:
-                    #     processed_angle2 = processed_angle2 // 5
-
-                    line = [line[0], float(line[1]), float(line[2]), float(line[3])]
+                    line = [line[0], [float(line[1]), float(line[2])],
+                            line[3], [float(line[4]), float(line[5])],
+                            int(line[6]), [float(line[7]), float(line[8])]
+                            ]
                     path_seq.append(line)
 
                 for j in range(0, len(path_seq) - self.input_len):
                     res_seq.append(path_seq[j: j + self.input_len])
-                    # if dict1.get(int(res_seq[-1][-1][-1])) is None:
-                    #     dict1[int(res_seq[-1][-1][-1])] = 1
-                    # else:
-                    #     dict1[int(res_seq[-1][-1][-1])] += 1
 
         print(len(res_seq))
         self.imgs = res_seq
 
-        # for i in range(0, 36):
-        #     if dict1.get(i) is not None:
-        #         print(str(i) + " " + str(dict1.get(i)))
+        # 返回数据集大小
 
-    # 返回数据集大小
     def __len__(self):
         return len(self.imgs)
 
-    # 打开index对应图片进行预处理后return回处理后的图片和标签
+        # 打开index对应图片进行预处理后return回处理后的图片和标签
+
     def __getitem__(self, index):
-        # 100, 4
+        # len, 5
         item = self.imgs[index]
         imgs = None
-        angles = []
-
+        next_angles = []
         for i in range(0, self.input_len):
             img = item[i][0]
             img = Image.open(img)
@@ -326,13 +231,21 @@ class OrderTestDataset(Dataset):
             else:
                 imgs = torch.cat((imgs, img), dim=0)
 
-            angles.append(item[i][1])
+            next_angles.append(item[i][1])
 
-        angles = torch.tensor(angles, dtype=torch.int)
-        return imgs, angles, item[-1][2], item[-1][3]
+        # 第五张输入图像对应的终点图像
+        dest_img = Image.open(item[-1][2])
+        dest_img = dest_img.convert('RGB')
+        dest_img = self.transform(dest_img).unsqueeze(dim=0)
+        imgs = torch.cat((imgs, dest_img), dim=0)
+        # 第五张输入图像对应的终点偏转方向
+        next_angles.append(item[-1][3])
+        next_angles = torch.tensor(next_angles, dtype=torch.float)
+
+        stone_angles = torch.tensor(item[-1][5], dtype=torch.float)
+        # 输入六张图像，六对偏转方向，一个里程碑编号，一对里程碑偏转方向
+        return imgs, next_angles, item[-1][4], stone_angles
 
 
 if __name__ == '__main__':
-    # write_img_angle(k=100)
-    train_dataset = OrderTrainDataset(transform=None, num_classes2=2, input_len=5)
-    test_dataset = OrderTestDataset(transform=None, num_classes2=2, input_len=5)
+    write_img_angle(k=100)
