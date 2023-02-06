@@ -5,8 +5,11 @@ from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
 
-class Extractor(nn.Module):
+def get_pad_mask(seq, pad_idx):
+    return (seq != pad_idx).unsqueeze(-2)
 
+
+class Extractor(nn.Module):
     def __init__(self, backbone, dim):
         super(Extractor, self).__init__()
         self.backbone = backbone
@@ -29,8 +32,8 @@ class PreNorm(nn.Module):
         self.norm = nn.LayerNorm(dim)
         self.fn = fn
 
-    def forward(self, x, **kwargs):
-        return self.fn(self.norm(x), **kwargs)
+    def forward(self, x, mask, **kwargs):
+        return self.fn(self.norm(x), mask, **kwargs)
 
 
 class FeedForward(nn.Module):
@@ -44,7 +47,7 @@ class FeedForward(nn.Module):
             nn.Dropout(dropout)
         )
 
-    def forward(self, x):
+    def forward(self, x, mask):
         return self.net(x)
 
 
@@ -67,11 +70,15 @@ class Attention(nn.Module):
             nn.Dropout(dropout)
         ) if project_out else nn.Identity()
 
-    def forward(self, x):
+    def forward(self, x, mask):
         qkv = self.to_qkv(x).chunk(3, dim=-1)
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.heads), qkv)
 
         dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
+
+        if mask is not None:
+            mask = mask.unsqueeze(1)  # For head axis broadcasting.
+            dots = dots.masked_fill(mask == 0, -1e9)
 
         attn = self.attend(dots)
         attn = self.dropout(attn)
@@ -91,10 +98,10 @@ class Transformer(nn.Module):
                 PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))
             ]))
 
-    def forward(self, x):
+    def forward(self, x, mask):
         for attn, ff in self.layers:
-            x = attn(x) + x
-            x = ff(x) + x
+            x = attn(x, mask) + x
+            x = ff(x, mask) + x
         return x
 
 
@@ -135,18 +142,18 @@ class ViT(nn.Module):
         )
 
     def forward(self, img, ang):
+        # b,1,len
+        src_mask = get_pad_mask(img[:, :, 0, 0, 0].view(-1, self.len), pad_idx=0)
+        # b,1,1 + len
+        b = img.size(0)
+        src_mask = torch.cat((torch.ones(b, 1, 1).cuda(), src_mask), dim=-1)
+
         # 试试使用HOG特征
         # b,len,3,224,224->b*len,3,224,224->b*len,576->b,len,576
         img = self.extractor(img.view(-1, 3, 224, 224))
         img = img.view(-1, self.len, self.extractor_dim)
 
-        # # 不要终点的偏转方向
-        # for i in range(1, self.len):
-        #     ang[:, i, :] += ang[:, i - 1, :]
-        # ang[:, 0, :] = 0
-        # 5不变，4=3,3=2,2=1,1=0，0归为0
-
-        ang[:, self.len - 2: self.len, :] = 0
+        # b,len,2
         for i in range(1, self.len):
             ang[:, i, :] += ang[:, i - 1, :]
 
@@ -155,14 +162,15 @@ class ViT(nn.Module):
         # b,len,578->b,len,512
         img = self.img_linear(img)
 
-        b, n, _ = img.shape
+        # b,1+len,512
         cls_tokens = repeat(self.cls_token, '1 1 d -> b 1 d', b=b)
         img = torch.cat((cls_tokens, img), dim=1)
-        img[:, :1 + n, :] += self.pos_embedding[:, :1 + n, :]
+
+        img[:, :1 + self.len, :] += self.pos_embedding[:, :1 + self.len, :]
 
         img = self.dropout(img)
 
-        img = self.transformer(img)
+        img = self.transformer(img, src_mask)
 
         img = img.mean(dim=1) if self.pool == 'mean' else img[:, 0]
 

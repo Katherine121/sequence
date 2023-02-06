@@ -52,6 +52,7 @@ def write_img_angle(k):
     res_delta = []
     for path in res:
         path_delta = []
+
         for i in range(0, len(path)):
             flag = False
             for j in range(i + 1, len(path)):
@@ -85,7 +86,7 @@ def write_img_angle(k):
                 next_part = (sin, cos)
 
                 # 还要计算到终点的偏转方向
-                # 计算下一时刻位置距离当前位置的角度
+                # 计算终点位置距离当前位置的角度
                 lat_delta = (path[-1][2] - path[i][2]) * 111000
                 lon_delta = (path[-1][3] - path[i][3]) * 111000 * math.cos(path[i][2] / 180 * math.pi)
 
@@ -137,8 +138,11 @@ class OrderTrainDataset(Dataset):
                             ]
                     path_seq.append(line)
 
-                for j in range(0, len(path_seq) - self.input_len):
-                    res_seq.append(path_seq[j: j + self.input_len])
+                for j in range(1, len(path_seq) + 1):
+                    if j - self.input_len < 0:
+                        res_seq.append(path_seq[0: j])
+                    else:
+                        res_seq.append(path_seq[j - self.input_len: j])
 
         print(len(res_seq))
         self.imgs = res_seq
@@ -151,32 +155,46 @@ class OrderTrainDataset(Dataset):
     def __getitem__(self, index):
         # len, 5
         item = self.imgs[index]
-        imgs = None
+
+        next_imgs = None
         next_angles = []
-        for i in range(0, self.input_len):
+
+        # 本来就有的图像和角度
+        for i in range(0, len(item)):
             img = item[i][0]
             img = Image.open(img)
             img = img.convert('RGB')
             img = self.transform(img).unsqueeze(dim=0)
-            if imgs is None:
-                imgs = img
+            if next_imgs is None:
+                next_imgs = img
             else:
-                imgs = torch.cat((imgs, img), dim=0)
+                next_imgs = torch.cat((next_imgs, img), dim=0)
 
-            next_angles.append(item[i][1])
+            if i == len(item) - 1:
+                next_angles.append([0, 0])
+            else:
+                next_angles.append(item[i][1])
 
         # 第五张输入图像对应的终点图像
         dest_img = Image.open(item[-1][2])
         dest_img = dest_img.convert('RGB')
         dest_img = self.transform(dest_img).unsqueeze(dim=0)
-        imgs = torch.cat((imgs, dest_img), dim=0)
+        next_imgs = torch.cat((next_imgs, dest_img), dim=0)
         # 第五张输入图像对应的终点偏转方向
-        next_angles.append(item[-1][3])
+        dest_angle = [0, 0]
+        next_angles.append(dest_angle)
         next_angles = torch.tensor(next_angles, dtype=torch.float)
+        # 预测的里程碑编号和角度
+        stone_img = item[-1][4]
+        stone_angle = torch.tensor(item[-1][5], dtype=torch.float)
 
-        stone_angles = torch.tensor(item[-1][5], dtype=torch.float)
+        # 补上缺的图像和角度
+        for i in range(0, self.input_len - len(item)):
+            next_imgs = torch.cat((next_imgs, torch.zeros((1, 3, 224, 224))), dim=0)
+            next_angles = torch.cat((next_angles, torch.zeros((1, 2))), dim=0)
+
         # 输入六张图像，六对偏转方向，一个里程碑编号，一对里程碑偏转方向
-        return imgs, next_angles, item[-1][4], stone_angles
+        return next_imgs, next_angles, stone_img, stone_angle
 
 
 class OrderTestDataset(Dataset):
@@ -203,48 +221,63 @@ class OrderTestDataset(Dataset):
                             ]
                     path_seq.append(line)
 
-                for j in range(0, len(path_seq) - self.input_len):
-                    res_seq.append(path_seq[j: j + self.input_len])
+                for j in range(1, len(path_seq) + 1):
+                    if j - self.input_len < 0:
+                        res_seq.append(path_seq[0: j])
+                    else:
+                        res_seq.append(path_seq[j - self.input_len: j])
 
         print(len(res_seq))
         self.imgs = res_seq
 
-        # 返回数据集大小
-
+    # 返回数据集大小
     def __len__(self):
         return len(self.imgs)
 
-        # 打开index对应图片进行预处理后return回处理后的图片和标签
-
+    # 打开index对应图片进行预处理后return回处理后的图片和标签
     def __getitem__(self, index):
         # len, 5
         item = self.imgs[index]
-        imgs = None
+
+        next_imgs = None
         next_angles = []
-        for i in range(0, self.input_len):
+
+        # 本来就有的图像和角度
+        for i in range(0, len(item)):
             img = item[i][0]
             img = Image.open(img)
             img = img.convert('RGB')
             img = self.transform(img).unsqueeze(dim=0)
-            if imgs is None:
-                imgs = img
+            if next_imgs is None:
+                next_imgs = img
             else:
-                imgs = torch.cat((imgs, img), dim=0)
+                next_imgs = torch.cat((next_imgs, img), dim=0)
 
-            next_angles.append(item[i][1])
+            if i == len(item) - 1:
+                next_angles.append([0, 0])
+            else:
+                next_angles.append(item[i][1])
 
         # 第五张输入图像对应的终点图像
         dest_img = Image.open(item[-1][2])
         dest_img = dest_img.convert('RGB')
         dest_img = self.transform(dest_img).unsqueeze(dim=0)
-        imgs = torch.cat((imgs, dest_img), dim=0)
+        next_imgs = torch.cat((next_imgs, dest_img), dim=0)
         # 第五张输入图像对应的终点偏转方向
-        next_angles.append(item[-1][3])
+        dest_angle = [0, 0]
+        next_angles.append(dest_angle)
         next_angles = torch.tensor(next_angles, dtype=torch.float)
+        # 预测的里程碑编号和角度
+        stone_img = item[-1][4]
+        stone_angle = torch.tensor(item[-1][5], dtype=torch.float)
 
-        stone_angles = torch.tensor(item[-1][5], dtype=torch.float)
+        # 补上缺的图像和角度
+        for i in range(0, self.input_len - len(item)):
+            next_imgs = torch.cat((next_imgs, torch.zeros((1, 3, 224, 224))), dim=0)
+            next_angles = torch.cat((next_angles, torch.zeros((1, 2))), dim=0)
+
         # 输入六张图像，六对偏转方向，一个里程碑编号，一对里程碑偏转方向
-        return imgs, next_angles, item[-1][4], stone_angles
+        return next_imgs, next_angles, stone_img, stone_angle
 
 
 if __name__ == '__main__':

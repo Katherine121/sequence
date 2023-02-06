@@ -47,7 +47,7 @@ parser.add_argument('--epochs', default=1000, type=int,
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
-parser.add_argument('--save-dir', default='save6', type=str,
+parser.add_argument('--save-dir', default='save7', type=str,
                     metavar='PATH', help='model saved path')
 parser.add_argument('-b', '--batch-size', default=256, type=int,
                     metavar='BS',
