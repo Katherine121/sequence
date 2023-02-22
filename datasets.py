@@ -68,35 +68,30 @@ def write_img_angle(k):
                     # 里程碑编号，飞到里程碑时纬度偏转多少，经度偏转多少
                     stone_part = (path[j][1], sin, cos)
 
+                    # 还要计算下一时刻的偏转方向
+                    # 计算下一时刻位置距离当前位置的角度
+                    lat_delta = (path[i + 1][2] - path[i][2]) * 111000
+                    lon_delta = (path[i + 1][3] - path[i][3]) * 111000 * math.cos(path[i][2] / 180 * math.pi)
+
+                    sum = math.sqrt(lat_delta * lat_delta + lon_delta * lon_delta)
+                    sin = lat_delta / sum
+                    cos = lon_delta / sum
+                    # 飞到下一个时刻时纬度偏转多少，经度偏转多少
+                    next_part = (sin, cos)
+
                     # 找到了下一个里程碑就退出
                     flag = True
                     break
 
-            # 如果不是终点
-            if flag is True:
-                # 还要计算下一时刻的偏转方向
-                # 计算下一时刻位置距离当前位置的角度
-                lat_delta = (path[i + 1][2] - path[i][2]) * 111000
-                lon_delta = (path[i + 1][3] - path[i][3]) * 111000 * math.cos(path[i][2] / 180 * math.pi)
+            # 如果是终点
+            if flag is False:
+                stone_part = path_delta[-1][-1]
+                next_part = (0, 0)
 
-                sum = math.sqrt(lat_delta * lat_delta + lon_delta * lon_delta)
-                sin = lat_delta / sum
-                cos = lon_delta / sum
-                # 飞到下一个时刻时纬度偏转多少，经度偏转多少
-                next_part = (sin, cos)
+            # 终点图像
+            dest_part = path[-1][0]
 
-                # 还要计算到终点的偏转方向
-                # 计算终点位置距离当前位置的角度
-                lat_delta = (path[-1][2] - path[i][2]) * 111000
-                lon_delta = (path[-1][3] - path[i][3]) * 111000 * math.cos(path[i][2] / 180 * math.pi)
-
-                sum = math.sqrt(lat_delta * lat_delta + lon_delta * lon_delta)
-                sin = lat_delta / sum
-                cos = lon_delta / sum
-                # 终点路径，飞到终点时纬度偏转多少，经度偏转多少
-                dest_part = (path[-1][0], sin, cos)
-
-                path_delta.append((path[i][0], next_part, dest_part, stone_part))
+            path_delta.append((path[i][0], next_part, dest_part, path[i][1], stone_part))
 
         res_delta.append(path_delta)
 
@@ -104,14 +99,19 @@ def write_img_angle(k):
         os.mkdir("datasets")
     for path in res_delta:
         for pic in path:
-            name, next_part, dest_part, stone_part = pic[0], pic[1], pic[2], pic[3]
+            name, next_part, dest_part, label_part, stone_part = pic[0], pic[1], pic[2], pic[3], pic[4]
             new_txt_name = name[len("processOrder/order/"):len("processOrder/order/") + 5]
             with open("datasets/" + new_txt_name + ".txt", "a") as file1:
                 file1.write(name + " " + str(next_part[0]) + " " + str(next_part[1]) + " " +
-                            dest_part[0] + " " + str(dest_part[1]) + " " + str(dest_part[2]) + " " +
+                            dest_part + " " +
+                            str(label_part) + " " +
                             str(stone_part[0]) + " " + str(stone_part[1]) + " " + str(stone_part[2]) + "\n"
                             )
             file1.close()
+
+
+if __name__ == '__main__':
+    write_img_angle(k=100)
 
 
 class OrderTrainDataset(Dataset):
@@ -133,10 +133,12 @@ class OrderTrainDataset(Dataset):
                     line = line.split(' ')
 
                     line = [line[0], [float(line[1]), float(line[2])],
-                            line[3], [float(line[4]), float(line[5])],
-                            int(line[6]), [float(line[7]), float(line[8])]
+                            line[3],
+                            int(line[4]),
+                            int(line[5]), [float(line[6]), float(line[7])]
                             ]
                     path_seq.append(line)
+                f.close()
 
                 for j in range(1, len(path_seq) + 1):
                     if j - self.input_len < 0:
@@ -184,17 +186,18 @@ class OrderTrainDataset(Dataset):
         dest_angle = [0, 0]
         next_angles.append(dest_angle)
         next_angles = torch.tensor(next_angles, dtype=torch.float)
-        # 预测的里程碑编号和角度
-        stone_img = item[-1][4]
-        stone_angle = torch.tensor(item[-1][5], dtype=torch.float)
+        # 当前里程碑编号、预测的里程碑编号和角度
+        label1 = item[-1][3]
+        label2 = item[-1][4]
+        label3 = torch.tensor(item[-1][5], dtype=torch.float)
 
         # 补上缺的图像和角度
         for i in range(0, self.input_len - len(item)):
             next_imgs = torch.cat((next_imgs, torch.zeros((1, 3, 224, 224))), dim=0)
             next_angles = torch.cat((next_angles, torch.zeros((1, 2))), dim=0)
 
-        # 输入六张图像，六对偏转方向，一个里程碑编号，一对里程碑偏转方向
-        return next_imgs, next_angles, stone_img, stone_angle
+        # 输入六张图像，六对偏转方向，输出两个里程碑编号，一对里程碑偏转方向
+        return next_imgs, next_angles, label1, label2, label3
 
 
 class OrderTestDataset(Dataset):
@@ -216,10 +219,12 @@ class OrderTestDataset(Dataset):
                     line = line.split(' ')
 
                     line = [line[0], [float(line[1]), float(line[2])],
-                            line[3], [float(line[4]), float(line[5])],
-                            int(line[6]), [float(line[7]), float(line[8])]
+                            line[3],
+                            int(line[4]),
+                            int(line[5]), [float(line[6]), float(line[7])]
                             ]
                     path_seq.append(line)
+                f.close()
 
                 for j in range(1, len(path_seq) + 1):
                     if j - self.input_len < 0:
@@ -267,18 +272,15 @@ class OrderTestDataset(Dataset):
         dest_angle = [0, 0]
         next_angles.append(dest_angle)
         next_angles = torch.tensor(next_angles, dtype=torch.float)
-        # 预测的里程碑编号和角度
-        stone_img = item[-1][4]
-        stone_angle = torch.tensor(item[-1][5], dtype=torch.float)
+        # 当前里程碑编号、预测的里程碑编号和角度
+        label1 = item[-1][3]
+        label2 = item[-1][4]
+        label3 = torch.tensor(item[-1][5], dtype=torch.float)
 
         # 补上缺的图像和角度
         for i in range(0, self.input_len - len(item)):
             next_imgs = torch.cat((next_imgs, torch.zeros((1, 3, 224, 224))), dim=0)
             next_angles = torch.cat((next_angles, torch.zeros((1, 2))), dim=0)
 
-        # 输入六张图像，六对偏转方向，一个里程碑编号，一对里程碑偏转方向
-        return next_imgs, next_angles, stone_img, stone_angle
-
-
-if __name__ == '__main__':
-    write_img_angle(k=100)
+        # 输入六张图像，六对偏转方向，输出两个里程碑编号，一对里程碑偏转方向
+        return next_imgs, next_angles, label1, label2, label3

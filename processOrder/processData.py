@@ -1,3 +1,4 @@
+import PIL
 import math
 import random
 import shutil
@@ -5,7 +6,7 @@ import shutil
 import numpy as np
 import os
 
-from PIL import ImageFile
+from PIL import ImageFile, Image
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 

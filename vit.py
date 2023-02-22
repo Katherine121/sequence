@@ -128,11 +128,15 @@ class ViT(nn.Module):
 
         self.pool = pool
 
-        self.mlp_head_target = nn.Sequential(
+        self.head_label = nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, num_classes1)
         )
-        self.mlp_head_angle = nn.Sequential(
+        self.head_target = nn.Sequential(
+            nn.LayerNorm(dim),
+            nn.Linear(dim, num_classes1)
+        )
+        self.head_angle = nn.Sequential(
             # cbapd
             nn.LayerNorm(dim),
             nn.Hardtanh(),
@@ -146,7 +150,7 @@ class ViT(nn.Module):
         src_mask = get_pad_mask(img[:, :, 0, 0, 0].view(-1, self.len), pad_idx=0)
         # b,1,1 + len
         b = img.size(0)
-        src_mask = torch.cat((torch.ones(b, 1, 1).cuda(), src_mask), dim=-1)
+        src_mask = torch.cat((torch.ones(b, 1, 1).to(img.device), src_mask), dim=-1)
 
         # 试试使用HOG特征
         # b,len,3,224,224->b*len,3,224,224->b*len,576->b,len,576
@@ -174,4 +178,4 @@ class ViT(nn.Module):
 
         img = img.mean(dim=1) if self.pool == 'mean' else img[:, 0]
 
-        return self.mlp_head_target(img), self.mlp_head_angle(img)
+        return self.head_label(img), self.head_target(img), self.head_angle(img)
