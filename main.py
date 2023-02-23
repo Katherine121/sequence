@@ -47,7 +47,7 @@ parser.add_argument('--epochs', default=1000, type=int,
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
-parser.add_argument('--save-dir', default='save9', type=str,
+parser.add_argument('--save-dir', default='save8', type=str,
                     metavar='PATH', help='model saved path')
 parser.add_argument('-b', '--batch-size', default=128, type=int,
                     metavar='BS',
@@ -58,8 +58,6 @@ parser.add_argument('--num_classes1', default=100, type=int,
                     metavar='N', help='the number of milestone labels')
 parser.add_argument('--num_classes2', default=2, type=int,
                     metavar='N', help='the number of angle labels(latitude and longitude)')
-parser.add_argument('--thresh', default=5, type=float,
-                    metavar='THRESH', help='the maximum difference between actual angle and predicted angle')
 parser.add_argument('--len', default=6, type=int,
                     metavar='LEN', help='the number of model input sequence length')
 parser.add_argument('--lr', default=0.001, type=float,
@@ -71,7 +69,7 @@ parser.add_argument('--wd', default=0.1, type=float,
 
 parser.add_argument('--pretrained', default='', type=str,
                     metavar='PATH', help='path to moco pretrained checkpoint')
-parser.add_argument('--resume', default='', type=str,
+parser.add_argument('--resume', default='save8/checkpoint.pth.tar', type=str,
                     metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate',
                     action='store_true', help='evaluate model on validation set')
@@ -192,9 +190,10 @@ def main_worker(gpu, ngpus_per_node, args):
     print(model)
 
     # ours: flops: 455.46 M, params: 14.07 M
-    # flops, params = profile(model, (torch.randn((1, 6, 3, 224, 224)).cuda(), torch.randn((1, 6, 2)).cuda()))
-    # print('flops: ', flops, 'params: ', params)
-    # print('flops: %.2f M, params: %.2f M' % (flops / 1000000.0, params / 1000000.0))
+    flops, params = profile(model,
+                            (torch.randn((1, 6, 3, 224, 224)).cuda(args.gpu), torch.randn((1, 6, 2)).cuda(args.gpu)))
+    print('flops: ', flops, 'params: ', params)
+    print('flops: %.2f M, params: %.2f M' % (flops / 1000000.0, params / 1000000.0))
 
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
@@ -253,7 +252,7 @@ def main_worker(gpu, ngpus_per_node, args):
             print("best_acc2: " + str(best_acc2))
             print("best_acc3: " + str(best_acc3))
 
-            model.load_state_dict(checkpoint['state_dict'])
+            model.load_state_dict(checkpoint['state_dict'], strict=False)
             optimizer.load_state_dict(checkpoint['optimizer'])
             lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
             print("=> loaded checkpoint '{}' (epoch {})"
