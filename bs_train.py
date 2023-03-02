@@ -32,10 +32,11 @@ import torch.nn.functional as F
 from torchvision.transforms import AutoAugment
 import torch.multiprocessing as mp
 
-from baseline.dronet import Dronet
 from baseline.dronet_datasets import DronetTrainDataset, DronetTestDataset
-from baseline.other import resnet, mobilenet_v3
-from baseline.sresnet18 import SResNet
+from datasets import OrderTrainDataset, OrderTestDataset
+from baseline.dronet import Dronet
+from baseline.other import mobilenet_v3
+from baseline.lstm import LSTM
 
 torch.set_printoptions(precision=8)
 
@@ -48,7 +49,7 @@ parser.add_argument('--epochs', default=1000, type=int,
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
-parser.add_argument('--save-dir', default='baseline/mobilenet_save', type=str,
+parser.add_argument('--save-dir', default='baseline/lstm_save', type=str,
                     metavar='PATH', help='model saved path')
 parser.add_argument('-b', '--batch-size', default=128, type=int,
                     metavar='BS',
@@ -159,9 +160,13 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     print("=> creating model")
     # model = Dronet(img_channels=3, num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    # model = SResNet(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    # model = resnet(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    model = mobilenet_v3(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    # model = mobilenet_v3(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    backbone = torchvision_models.mobilenet_v3_small(pretrained=True)
+    model = LSTM(backbone=backbone,
+                 num_classes1=args.num_classes1,
+                 num_classes2=args.num_classes2,
+                 dim=512,
+                 len=args.len)
 
     # load from pre-trained, before DistributedDataParallel constructor
     if args.pretrained:
@@ -180,13 +185,13 @@ def main_worker(gpu, ngpus_per_node, args):
     model = model.cuda(args.gpu)
     print(model)
 
-    # # dronet: flops: 69.82 M, params: 1.58 M
-    # # sresnet: 6900.41 M, params: 11.28 M
-    # # resnet: flops: 6900.41 M, params: 11.28 M
-    # # mobilenetv3: flops: 60.98 M, params: 1.04 M
-    # flops, params = profile(model, (torch.randn((1, 3, 224, 224)).cuda(args.gpu), ))
-    # print('flops: ', flops, 'params: ', params)
-    # print('flops: %.2f M, params: %.2f M' % (flops / 1000000.0, params / 1000000.0))
+    # dronet: flops: 69.82 M, params: 1.58 M
+    # mobilenetv3: flops: 60.98 M, params: 1.04 M
+    # mobilenetv3+lstm: flops: 468.26M, params: 18.27M
+    # mobilenetv3+vit见main.py
+    flops, params = profile(model, (torch.randn((1, 6, 3, 224, 224)).cuda(args.gpu), torch.randn((1, 6, 2)).cuda(args.gpu)))
+    print('flops: ', flops, 'params: ', params)
+    print('flops: %.2f M, params: %.2f M' % (flops / 1000000.0, params / 1000000.0))
 
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
@@ -277,9 +282,12 @@ def main_worker(gpu, ngpus_per_node, args):
         transforms.ToTensor(),
         normalize,
     ])
-    train_dataset = DronetTrainDataset(transform=train_transform, input_len=args.len - 1) + \
-                    DronetTrainDataset(transform=train_transform_aug, input_len=args.len - 1)
-    test_dataset = DronetTestDataset(transform=val_transform, input_len=args.len - 1)
+    # train_dataset = DronetTrainDataset(transform=train_transform, input_len=args.len - 1) + \
+    #                 DronetTrainDataset(transform=train_transform_aug, input_len=args.len - 1)
+    # test_dataset = DronetTestDataset(transform=val_transform, input_len=args.len - 1)
+    train_dataset = OrderTrainDataset(transform=train_transform, input_len=args.len - 1) + \
+                    OrderTrainDataset(transform=train_transform_aug, input_len=args.len - 1)
+    test_dataset = OrderTestDataset(transform=val_transform, input_len=args.len - 1)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -299,7 +307,8 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler.set_epoch(epoch)
 
         # train for one epoch
-        loss, loss1, loss2, loss3 = train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, epoch, args)
+        loss, loss1, loss2, loss3 = train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, epoch,
+                                          args)
 
         # evaluate on validation set
         label_acc, target_acc, angle_acc1, angle_acc5, angle_acc_avg = validate(val_loader, model, args)
@@ -329,7 +338,8 @@ def main_worker(gpu, ngpus_per_node, args):
                 file1.write(str(target_acc) + " " + str(best_acc2) + "\n")
             file1.close()
             with open(args.save_dir + "/angle_acc.txt", "a") as file1:
-                file1.write(str(angle_acc1) + " " + str(angle_acc5) + " " + str(angle_acc_avg) + " " + str(best_acc3) + "\n")
+                file1.write(
+                    str(angle_acc1) + " " + str(angle_acc5) + " " + str(angle_acc_avg) + " " + str(best_acc3) + "\n")
             file1.close()
 
             save_checkpoint({
@@ -372,10 +382,12 @@ def train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, 
     model.train()
 
     end = time.time()
-    for i, (images, label1, label2, label3) in enumerate(train_loader):
+    for i, (images, next_angles, label1, label2, label3) in enumerate(train_loader):
         if args.gpu is not None:
-            # b,3,224,224
+            # b,len,3,224,224
             images = images.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
+            # b,len,2
+            next_angles = next_angles.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
             # b
             label1 = label1.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
             # b
@@ -383,7 +395,8 @@ def train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, 
             # b,2
             label3 = label3.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
 
-        output1, output2, output3 = model(images)
+        # b,len,3,224,224+b,len,2
+        output1, output2, output3 = model(images, next_angles)
 
         loss1 = criterion1(output1, label1)
         loss2 = criterion1(output2, label2)
@@ -434,10 +447,12 @@ def validate(val_loader, model, args):
     model.eval()
 
     with torch.no_grad():
-        for i, (images, label1, label2, label3) in enumerate(val_loader):
+        for i, (images, next_angles, label1, label2, label3) in enumerate(val_loader):
             if args.gpu is not None:
-                # b,3,224,224
+                # b,len,3,224,224
                 images = images.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
+                # b,len,2
+                next_angles = next_angles.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
                 # b
                 label1 = label1.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
                 # b
@@ -445,7 +460,8 @@ def validate(val_loader, model, args):
                 # b,2
                 label3 = label3.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
 
-            output1, output2, output3 = model(images)
+            # b,len,3,224,224+b,len,2
+            output1, output2, output3 = model(images, next_angles)
 
             # _,是batch_size*概率，preds是batch_size*最大概率的列号
             _, preds = output1.max(1)

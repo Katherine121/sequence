@@ -2,7 +2,6 @@ import torch
 from torch import nn
 
 from einops import rearrange, repeat
-from einops.layers.torch import Rearrange
 
 
 def get_pad_mask(seq, pad_idx):
@@ -10,7 +9,7 @@ def get_pad_mask(seq, pad_idx):
 
 
 class Extractor(nn.Module):
-    def __init__(self, backbone, dim):
+    def __init__(self, backbone):
         super(Extractor, self).__init__()
         self.backbone = backbone
         self.backbone.classifier = nn.Identity()
@@ -111,12 +110,12 @@ class ViT(nn.Module):
                  dim, depth, heads, mlp_dim, pool, len,
                  dim_head, dropout=0., emb_dropout=0.):
         super().__init__()
-        self.extractor = Extractor(backbone, dim)
+        self.extractor = Extractor(backbone)
         self.extractor_dim = 576
         self.len = len
 
         # 576+2
-        self.img_linear = nn.Linear(578, dim)
+        self.img_linear = nn.Linear(self.extractor_dim + 2, dim)
 
         assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
 

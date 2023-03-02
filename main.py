@@ -69,7 +69,7 @@ parser.add_argument('--wd', default=0.1, type=float,
 
 parser.add_argument('--pretrained', default='', type=str,
                     metavar='PATH', help='path to moco pretrained checkpoint')
-parser.add_argument('--resume', default='save8/checkpoint.pth.tar', type=str,
+parser.add_argument('--resume', default='', type=str,
                     metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate',
                     action='store_true', help='evaluate model on validation set')
@@ -227,6 +227,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # optimize only the linear classifier
     parameters = list(filter(lambda p: p.requires_grad, model.parameters()))
+    print(len(parameters))
 
     optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=args.wd)
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
@@ -383,7 +384,7 @@ def train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, 
         if args.gpu is not None:
             # b,len,3,224,224
             images = images.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
-            # b,len
+            # b,len,2
             next_angles = next_angles.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
             # b
             label1 = label1.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
@@ -448,7 +449,7 @@ def validate(val_loader, model, args):
             if args.gpu is not None:
                 # b,len,3,224,224
                 images = images.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
-                # b,len
+                # b,len,2
                 next_angles = next_angles.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
                 # b
                 label1 = label1.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
