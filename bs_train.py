@@ -37,6 +37,7 @@ from datasets import OrderTrainDataset, OrderTestDataset
 from baseline.dronet import Dronet
 from baseline.other import mobilenet_v3
 from baseline.lstm import LSTM
+from utils import WeightedLoss
 
 torch.set_printoptions(precision=8)
 
@@ -49,7 +50,7 @@ parser.add_argument('--epochs', default=1000, type=int,
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
-parser.add_argument('--save-dir', default='baseline/lstm_save', type=str,
+parser.add_argument('--save-dir', default='baseline/lstmloss_save4', type=str,
                     metavar='PATH', help='model saved path')
 parser.add_argument('-b', '--batch-size', default=128, type=int,
                     metavar='BS',
@@ -60,8 +61,6 @@ parser.add_argument('--num_classes1', default=100, type=int,
                     metavar='N', help='the number of milestone labels')
 parser.add_argument('--num_classes2', default=2, type=int,
                     metavar='N', help='the number of angle labels(latitude and longitude)')
-parser.add_argument('--thresh', default=5, type=float,
-                    metavar='THRESH', help='the maximum difference between actual angle and predicted angle')
 parser.add_argument('--len', default=6, type=int,
                     metavar='LEN', help='the number of model input sequence length')
 parser.add_argument('--lr', default=0.001, type=float,
@@ -162,11 +161,15 @@ def main_worker(gpu, ngpus_per_node, args):
     # model = Dronet(img_channels=3, num_classes1=args.num_classes1, num_classes2=args.num_classes2)
     # model = mobilenet_v3(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
     backbone = torchvision_models.mobilenet_v3_small(pretrained=True)
-    model = LSTM(backbone=backbone,
-                 num_classes1=args.num_classes1,
-                 num_classes2=args.num_classes2,
-                 dim=512,
-                 len=args.len)
+    model = LSTM(
+        backbone=backbone,
+        extractor_dim=576,
+        num_classes1=args.num_classes1,
+        num_classes2=args.num_classes2,
+        dim=512,
+        num_layers=4,
+        len=args.len
+    )
 
     # load from pre-trained, before DistributedDataParallel constructor
     if args.pretrained:
@@ -187,9 +190,13 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # dronet: flops: 69.82 M, params: 1.58 M
     # mobilenetv3: flops: 60.98 M, params: 1.04 M
-    # mobilenetv3+lstm: flops: 468.26M, params: 18.27M
+    # mobilenetv3+lstm8: flops: 468.26M, params: 18.27M
+    # mobilenetv3+lstm4: flops: 417.73 M, params: 9.87 M
+    # mobilenetv3+lstm4+loss+2linear: flops: 419.83 M, params: 10.65 M
     # mobilenetv3+vit见main.py
-    flops, params = profile(model, (torch.randn((1, 6, 3, 224, 224)).cuda(args.gpu), torch.randn((1, 6, 2)).cuda(args.gpu)))
+    flops, params = profile(model,
+                            (torch.randn((1, args.len, 3, 224, 224)).cuda(args.gpu),
+                             torch.randn((1, args.len, 2)).cuda(args.gpu)))
     print('flops: ', flops, 'params: ', params)
     print('flops: %.2f M, params: %.2f M' % (flops / 1000000.0, params / 1000000.0))
 
@@ -222,9 +229,12 @@ def main_worker(gpu, ngpus_per_node, args):
     # define loss function (criterion) and optimizer
     criterion1 = nn.CrossEntropyLoss().cuda(args.gpu)
     criterion2 = nn.MSELoss().cuda(args.gpu)
+    criterion = WeightedLoss(num=3)
 
     # optimize only the linear classifier
-    parameters = list(filter(lambda p: p.requires_grad, model.parameters()))
+    parameters = list(filter(lambda p: p.requires_grad, model.parameters())) + \
+                 list(filter(lambda p: p.requires_grad, criterion.parameters()))
+    print(len(parameters))
 
     optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=args.wd)
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
@@ -250,7 +260,9 @@ def main_worker(gpu, ngpus_per_node, args):
             print("best_acc2: " + str(best_acc2))
             print("best_acc3: " + str(best_acc3))
 
-            model.load_state_dict(checkpoint['state_dict'])
+            model.load_state_dict(checkpoint['state_dict'], strict=False)
+            criterion.load_state_dict(checkpoint['loss_weight'], strict=False)
+            print(criterion.params)
             optimizer.load_state_dict(checkpoint['optimizer'])
             lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
             print("=> loaded checkpoint '{}' (epoch {})"
@@ -307,7 +319,7 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler.set_epoch(epoch)
 
         # train for one epoch
-        loss, loss1, loss2, loss3 = train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, epoch,
+        loss, loss1, loss2, loss3 = train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_scheduler, epoch,
                                           args)
 
         # evaluate on validation set
@@ -342,9 +354,13 @@ def main_worker(gpu, ngpus_per_node, args):
                     str(angle_acc1) + " " + str(angle_acc5) + " " + str(angle_acc_avg) + " " + str(best_acc3) + "\n")
             file1.close()
 
+            for name, param in criterion.named_parameters():
+                print(name)
+                print(param)
             save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
+                'loss_weight': criterion.state_dict(),
                 'best_acc1': best_acc1,
                 'best_acc2': best_acc2,
                 'best_acc3': best_acc3,
@@ -356,7 +372,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 args=args)
 
 
-def train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, epoch, args):
+def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_scheduler, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     label_top = AverageMeter('LabelAcc@1', ':6.2f')
@@ -402,7 +418,7 @@ def train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, 
         loss2 = criterion1(output2, label2)
         loss3 = criterion2(output3, label3)
 
-        loss = loss1 + loss2 + loss3
+        loss = criterion([loss1, loss2, loss3])
 
         # measure accuracy and record loss
         label_acc, _ = accuracy(output1, label1, topk=(1, 5))

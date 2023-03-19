@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 if __name__ == "__main__":
-    fp1 = open('save8/loss.txt', 'r')
+    fp1 = open('save9/loss.txt', 'r')
     total_loss = []
     i = 0
     for loss in fp1:
@@ -15,7 +15,7 @@ if __name__ == "__main__":
 
     total_loss = np.array(total_loss, dtype=float)  # 将其转换成numpy的数组，并定义数据类型为float
 
-    fp2 = open('save8/label_acc.txt', 'r')
+    fp2 = open('save9/label_acc.txt', 'r')
     label_acc = []
     i = 0
     for acc in fp2:
@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
     label_acc = np.array(label_acc, dtype=float)  # 将其转换成numpy的数组，并定义数据类型为float
 
-    fp3 = open('save8/target_acc.txt', 'r')
+    fp3 = open('save9/target_acc.txt', 'r')
     target_acc = []
     i = 0
     for acc in fp3:
@@ -39,7 +39,7 @@ if __name__ == "__main__":
 
     target_acc = np.array(target_acc, dtype=float)  # 将其转换成numpy的数组，并定义数据类型为float
 
-    fp4 = open('save8/angle_acc.txt', 'r')
+    fp4 = open('save9/angle_acc.txt', 'r')
     angle_acc = []
     i = 0
     for acc in fp4:

@@ -33,6 +33,7 @@ from torchvision.transforms import AutoAugment
 import torch.multiprocessing as mp
 
 from datasets import OrderTrainDataset, OrderTestDataset
+from utils import WeightedLoss
 
 from vit import ViT
 
@@ -47,7 +48,7 @@ parser.add_argument('--epochs', default=1000, type=int,
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
-parser.add_argument('--save-dir', default='save8', type=str,
+parser.add_argument('--save-dir', default='save10', type=str,
                     metavar='PATH', help='model saved path')
 parser.add_argument('-b', '--batch-size', default=128, type=int,
                     metavar='BS',
@@ -159,6 +160,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     model = ViT(
         backbone=backbone,
+        extractor_dim=576,
         num_classes1=args.num_classes1,
         num_classes2=args.num_classes2,
         dim=512,
@@ -190,8 +192,10 @@ def main_worker(gpu, ngpus_per_node, args):
     print(model)
 
     # ours: flops: 455.46 M, params: 14.07 M
+    # ours+loss+2linear: flops: 457.56 M, params: 14.86 M
     flops, params = profile(model,
-                            (torch.randn((1, 6, 3, 224, 224)).cuda(args.gpu), torch.randn((1, 6, 2)).cuda(args.gpu)))
+                            (torch.randn((1, args.len, 3, 224, 224)).cuda(args.gpu),
+                             torch.randn((1, args.len, 2)).cuda(args.gpu)))
     print('flops: ', flops, 'params: ', params)
     print('flops: %.2f M, params: %.2f M' % (flops / 1000000.0, params / 1000000.0))
 
@@ -224,9 +228,11 @@ def main_worker(gpu, ngpus_per_node, args):
     # define loss function (criterion) and optimizer
     criterion1 = nn.CrossEntropyLoss().cuda(args.gpu)
     criterion2 = nn.MSELoss().cuda(args.gpu)
+    criterion = WeightedLoss(num=3)
 
     # optimize only the linear classifier
-    parameters = list(filter(lambda p: p.requires_grad, model.parameters()))
+    parameters = list(filter(lambda p: p.requires_grad, model.parameters())) + \
+                 list(filter(lambda p: p.requires_grad, criterion.parameters()))
     print(len(parameters))
 
     optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=args.wd)
@@ -235,6 +241,7 @@ def main_worker(gpu, ngpus_per_node, args):
     best_acc1 = 0
     best_acc2 = 0
     best_acc3 = 0
+    best_acc4 = math.inf
 
     if args.resume:
         if os.path.isfile(args.resume):
@@ -249,11 +256,15 @@ def main_worker(gpu, ngpus_per_node, args):
             best_acc1 = checkpoint['best_acc1']
             best_acc2 = checkpoint['best_acc2']
             best_acc3 = checkpoint['best_acc3']
+            best_acc4 = checkpoint['best_acc4']
             print("best_acc1: " + str(best_acc1))
             print("best_acc2: " + str(best_acc2))
             print("best_acc3: " + str(best_acc3))
+            print("best_acc4: " + str(best_acc4))
 
             model.load_state_dict(checkpoint['state_dict'], strict=False)
+            criterion.load_state_dict(checkpoint['loss_weight'], strict=False)
+            print(criterion.params)
             optimizer.load_state_dict(checkpoint['optimizer'])
             lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
             print("=> loaded checkpoint '{}' (epoch {})"
@@ -307,7 +318,8 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler.set_epoch(epoch)
 
         # train for one epoch
-        loss, loss1, loss2, loss3 = train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, epoch, args)
+        loss, loss1, loss2, loss3 = train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_scheduler, epoch,
+                                          args)
 
         # evaluate on validation set
         label_acc, target_acc, angle_acc1, angle_acc5, angle_acc_avg = validate(val_loader, model, args)
@@ -321,6 +333,10 @@ def main_worker(gpu, ngpus_per_node, args):
 
         angle_is_best = angle_acc1 >= best_acc3
         best_acc3 = max(angle_acc1, best_acc3)
+
+        angle_avg_is_best = angle_acc_avg <= best_acc4
+        best_acc4 = min(angle_acc_avg, best_acc4)
+
 
         if not args.multiprocessing_distributed \
                 or (args.multiprocessing_distributed and args.rank == 0):
@@ -337,24 +353,31 @@ def main_worker(gpu, ngpus_per_node, args):
                 file1.write(str(target_acc) + " " + str(best_acc2) + "\n")
             file1.close()
             with open(args.save_dir + "/angle_acc.txt", "a") as file1:
-                file1.write(str(angle_acc1) + " " + str(angle_acc5) + " " + str(angle_acc_avg) + " " + str(best_acc3) + "\n")
+                file1.write(
+                    str(angle_acc1) + " " + str(angle_acc5) + " " + str(angle_acc_avg) + " " + str(best_acc3) + "\n")
             file1.close()
 
+            for name, param in criterion.named_parameters():
+                print(name)
+                print(param)
             save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
+                'loss_weight': criterion.state_dict(),
                 'best_acc1': best_acc1,
                 'best_acc2': best_acc2,
                 'best_acc3': best_acc3,
+                'best_acc4': best_acc4,
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
             }, label_is_best=label_is_best,
                 target_is_best=target_is_best,
                 angle_is_best=angle_is_best,
+                angle_avg_is_best=angle_avg_is_best,
                 args=args)
 
 
-def train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, epoch, args):
+def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_scheduler, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     label_top = AverageMeter('LabelAcc@1', ':6.2f')
@@ -400,7 +423,7 @@ def train(train_loader, model, criterion1, criterion2, optimizer, lr_scheduler, 
         loss2 = criterion1(output2, label2)
         loss3 = criterion2(output3, label3)
 
-        loss = loss1 + loss2 + loss3
+        loss = criterion([loss1, loss2, loss3])
 
         # measure accuracy and record loss
         label_acc, _ = accuracy(output1, label1, topk=(1, 5))
@@ -558,7 +581,7 @@ def angle_diff(output, target):
     return diff1, diff5, diff.sum()
 
 
-def save_checkpoint(state, label_is_best, target_is_best, angle_is_best, args):
+def save_checkpoint(state, label_is_best, target_is_best, angle_is_best, angle_avg_is_best, args):
     torch.save(state, args.save_dir + "/checkpoint.pth.tar")
     if label_is_best:
         shutil.copyfile(args.save_dir + "/checkpoint.pth.tar",
@@ -569,6 +592,9 @@ def save_checkpoint(state, label_is_best, target_is_best, angle_is_best, args):
     if angle_is_best:
         shutil.copyfile(args.save_dir + "/checkpoint.pth.tar",
                         args.save_dir + "/model_angle_best.pth.tar")
+    if angle_avg_is_best:
+        shutil.copyfile(args.save_dir + "/checkpoint.pth.tar",
+                        args.save_dir + "/model_angle_avg_best.pth.tar")
 
 
 class AverageMeter(object):

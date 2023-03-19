@@ -15,19 +15,22 @@ class Extractor(nn.Module):
 
 
 class LSTM(nn.Module):
-    def __init__(self, *, backbone,
+    def __init__(self, *, backbone, extractor_dim,
                  num_classes1, num_classes2,
-                 dim, len):
+                 dim, num_layers, len):
         super().__init__()
         self.extractor = Extractor(backbone)
-        self.extractor_dim = 576
+        self.extractor_dim = extractor_dim
+        self.dim = dim
         self.len = len
 
-        # 576+2
-        self.img_linear = nn.Linear(self.extractor_dim + 2, dim)
+        self.ang_linear = nn.Linear(2, dim)
+        # extractor_dim+dim
+        self.img_linear = nn.Linear(self.extractor_dim + dim, dim)
 
-        self.lstm = nn.LSTM(input_size=dim, hidden_size=dim, num_layers=8, batch_first=True)
+        self.lstm = nn.LSTM(input_size=dim, hidden_size=dim, num_layers=num_layers, batch_first=True)
 
+        self.mlp_head = nn.Linear(dim, 2 * dim)
         self.head_label = nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, num_classes1)
@@ -54,13 +57,18 @@ class LSTM(nn.Module):
         # b,len,2
         for i in range(1, self.len):
             ang[:, i, :] += ang[:, i - 1, :]
+        ang = self.ang_linear(ang)
 
-        # b,len,576->b,len,578
+        # b,len,extractor_dim+dim
         img = torch.cat((img, ang), dim=-1)
-        # b,len,578->b,len,512
+        # b,len,extractor_dim+dim->b,len,dim
         img = self.img_linear(img)
 
         img, _ = self.lstm(img)
         img = img[:, -1, :]
 
-        return self.head_label(img), self.head_target(img), self.head_angle(img)
+        img = self.mlp_head(img)
+        ang = img[:, self.dim:]
+        img = img[:, 0: self.dim]
+
+        return self.head_label(img), self.head_target(img), self.head_angle(ang)

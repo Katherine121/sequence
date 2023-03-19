@@ -105,17 +105,19 @@ class Transformer(nn.Module):
 
 
 class ViT(nn.Module):
-    def __init__(self, *, backbone,
+    def __init__(self, *, backbone, extractor_dim,
                  num_classes1, num_classes2,
                  dim, depth, heads, mlp_dim, pool, len,
                  dim_head, dropout=0., emb_dropout=0.):
         super().__init__()
         self.extractor = Extractor(backbone)
-        self.extractor_dim = 576
+        self.extractor_dim = extractor_dim
+        self.dim = dim
         self.len = len
 
-        # 576+2
-        self.img_linear = nn.Linear(self.extractor_dim + 2, dim)
+        self.ang_linear = nn.Linear(2, dim)
+        # extractor_dim+dim
+        self.img_linear = nn.Linear(self.extractor_dim + dim, dim)
 
         assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
 
@@ -127,6 +129,7 @@ class ViT(nn.Module):
 
         self.pool = pool
 
+        self.mlp_head = nn.Linear(dim, 2 * dim)
         self.head_label = nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, num_classes1)
@@ -159,13 +162,14 @@ class ViT(nn.Module):
         # b,len,2
         for i in range(1, self.len):
             ang[:, i, :] += ang[:, i - 1, :]
+        ang = self.ang_linear(ang)
 
-        # b,len,576->b,len,578
+        # b,len,extractor_dim+dim
         img = torch.cat((img, ang), dim=-1)
-        # b,len,578->b,len,512
+        # b,len,extractor_dim+dim->b,len,dim
         img = self.img_linear(img)
 
-        # b,1+len,512
+        # b,1+len,dim
         cls_tokens = repeat(self.cls_token, '1 1 d -> b 1 d', b=b)
         img = torch.cat((cls_tokens, img), dim=1)
 
@@ -177,4 +181,7 @@ class ViT(nn.Module):
 
         img = img.mean(dim=1) if self.pool == 'mean' else img[:, 0]
 
-        return self.head_label(img), self.head_target(img), self.head_angle(img)
+        img = self.mlp_head(img)
+        ang = img[:, self.dim:]
+        img = img[:, 0: self.dim]
+        return self.head_label(img), self.head_target(img), self.head_angle(ang)
