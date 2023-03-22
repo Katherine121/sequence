@@ -240,8 +240,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     best_acc1 = 0
     best_acc2 = 0
-    best_acc3 = 0
-    best_acc4 = math.inf
+    best_acc3 = math.inf
 
     if args.resume:
         if os.path.isfile(args.resume):
@@ -256,11 +255,9 @@ def main_worker(gpu, ngpus_per_node, args):
             best_acc1 = checkpoint['best_acc1']
             best_acc2 = checkpoint['best_acc2']
             best_acc3 = checkpoint['best_acc3']
-            best_acc4 = checkpoint['best_acc4']
             print("best_acc1: " + str(best_acc1))
             print("best_acc2: " + str(best_acc2))
             print("best_acc3: " + str(best_acc3))
-            print("best_acc4: " + str(best_acc4))
 
             model.load_state_dict(checkpoint['state_dict'], strict=False)
             criterion.load_state_dict(checkpoint['loss_weight'], strict=False)
@@ -322,7 +319,7 @@ def main_worker(gpu, ngpus_per_node, args):
                                           args)
 
         # evaluate on validation set
-        label_acc, target_acc, angle_acc1, angle_acc5, angle_acc_avg = validate(val_loader, model, args)
+        label_acc, target_acc, angle_acc_avg = validate(val_loader, model, args)
 
         # remember best acc@1 and save checkpoint
         label_is_best = label_acc >= best_acc1
@@ -331,12 +328,8 @@ def main_worker(gpu, ngpus_per_node, args):
         target_is_best = target_acc >= best_acc2
         best_acc2 = max(target_acc, best_acc2)
 
-        angle_is_best = angle_acc1 >= best_acc3
-        best_acc3 = max(angle_acc1, best_acc3)
-
-        angle_avg_is_best = angle_acc_avg <= best_acc4
-        best_acc4 = min(angle_acc_avg, best_acc4)
-
+        angle_avg_is_best = angle_acc_avg <= best_acc3
+        best_acc3 = min(angle_acc_avg, best_acc3)
 
         if not args.multiprocessing_distributed \
                 or (args.multiprocessing_distributed and args.rank == 0):
@@ -353,8 +346,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 file1.write(str(target_acc) + " " + str(best_acc2) + "\n")
             file1.close()
             with open(args.save_dir + "/angle_acc.txt", "a") as file1:
-                file1.write(
-                    str(angle_acc1) + " " + str(angle_acc5) + " " + str(angle_acc_avg) + " " + str(best_acc3) + "\n")
+                file1.write(str(angle_acc_avg) + " " + str(best_acc3) + "\n")
             file1.close()
 
             for name, param in criterion.named_parameters():
@@ -367,12 +359,10 @@ def main_worker(gpu, ngpus_per_node, args):
                 'best_acc1': best_acc1,
                 'best_acc2': best_acc2,
                 'best_acc3': best_acc3,
-                'best_acc4': best_acc4,
                 'optimizer': optimizer.state_dict(),
                 'lr_scheduler': lr_scheduler.state_dict(),
             }, label_is_best=label_is_best,
                 target_is_best=target_is_best,
-                angle_is_best=angle_is_best,
                 angle_avg_is_best=angle_avg_is_best,
                 args=args)
 
@@ -428,12 +418,12 @@ def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_
         # measure accuracy and record loss
         label_acc, _ = accuracy(output1, label1, topk=(1, 5))
         target_acc, _ = accuracy(output2, label2, topk=(1, 5))
-        angle_acc1, angle_acc5, angle_acc_avg = angle_diff(output3, label3)
+        angle_acc_avg = angle_diff(output3, label3)
 
         losses.update(loss.item(), images.size(0))
         label_top.update(label_acc[0], images.size(0))
         target_top.update(target_acc[0], images.size(0))
-        angle_top.update(angle_acc1 * 100 / images.size(0), images.size(0))
+        angle_top.update(angle_acc_avg / images.size(0), images.size(0))
 
         total_loss += loss.item()
         total_loss1 += loss1.item()
@@ -459,8 +449,6 @@ def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_
 def validate(val_loader, model, args):
     total_correct_label = 0
     total_correct_target = 0
-    total_correct_angle1 = 0
-    total_correct_angle5 = 0
     total_correct_angle_avg = 0
     total_samples = 0
 
@@ -495,24 +483,18 @@ def validate(val_loader, model, args):
             num_correct = (preds == label2).sum()
             total_correct_target += num_correct.item()
 
-            preds1, preds5, preds_avg = angle_diff(output3, label3)
-            total_correct_angle1 += preds1.item()
-            total_correct_angle5 += preds5.item()
+            preds_avg = angle_diff(output3, label3)
             total_correct_angle_avg += preds_avg.item()
 
     label_acc = float(total_correct_label / total_samples)
     taget_acc = float(total_correct_target / total_samples)
-    angle_acc1 = float(total_correct_angle1 / total_samples)
-    angle_acc5 = float(total_correct_angle5 / total_samples)
     angle_acc_avg = float(total_correct_angle_avg / total_samples)
 
     print("Test: LabelAcc " + str(label_acc))
     print("Test: TargetAcc " + str(taget_acc))
-    print("Test: AngleAcc1 " + str(angle_acc1))
-    print("Test: AngleAcc5 " + str(angle_acc5))
     print("Test: AngleAccAvg " + str(angle_acc_avg))
 
-    return label_acc, taget_acc, angle_acc1, angle_acc5, angle_acc_avg
+    return label_acc, taget_acc, angle_acc_avg
 
 
 def accuracy(output, target, topk=(1,)):
@@ -569,19 +551,11 @@ def angle_diff(output, target):
     # 处理差距大于180的情况，这种情况下，有可能差距小于threshold
     diff = torch.where(diff > 180, 360 - diff, diff)
 
-    # 找到偏差小于0.5的索引
-    diff1 = torch.lt(diff, 1)
-    diff1 = diff1.sum()
-
-    # 找到偏差小于阈值的索引
-    diff5 = torch.lt(diff, 5)
-    diff5 = diff5.sum()
-
     # 返回batch内小于阈值的角度
-    return diff1, diff5, diff.sum()
+    return diff.sum()
 
 
-def save_checkpoint(state, label_is_best, target_is_best, angle_is_best, angle_avg_is_best, args):
+def save_checkpoint(state, label_is_best, target_is_best, angle_avg_is_best, args):
     torch.save(state, args.save_dir + "/checkpoint.pth.tar")
     if label_is_best:
         shutil.copyfile(args.save_dir + "/checkpoint.pth.tar",
@@ -589,9 +563,6 @@ def save_checkpoint(state, label_is_best, target_is_best, angle_is_best, angle_a
     if target_is_best:
         shutil.copyfile(args.save_dir + "/checkpoint.pth.tar",
                         args.save_dir + "/model_target_best.pth.tar")
-    if angle_is_best:
-        shutil.copyfile(args.save_dir + "/checkpoint.pth.tar",
-                        args.save_dir + "/model_angle_best.pth.tar")
     if angle_avg_is_best:
         shutil.copyfile(args.save_dir + "/checkpoint.pth.tar",
                         args.save_dir + "/model_angle_avg_best.pth.tar")
