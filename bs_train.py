@@ -15,7 +15,6 @@ import time
 import warnings
 import builtins
 
-import numpy as np
 import torch.distributed as dist
 
 import torch
@@ -27,15 +26,12 @@ import torchvision.transforms as transforms
 import torchvision.models as torchvision_models
 from thop import profile
 from torch import nn
-import torch.nn.functional as F
+from torchvision.models import MobileNet_V3_Small_Weights
 
 from torchvision.transforms import AutoAugment
 import torch.multiprocessing as mp
 
-from baseline.dronet_datasets import DronetTrainDataset, DronetTestDataset
 from datasets import OrderTrainDataset, OrderTestDataset
-from baseline.dronet import Dronet
-from baseline.other import mobilenet_v3
 from baseline.lstm import LSTM
 from utils import WeightedLoss
 
@@ -50,7 +46,7 @@ parser.add_argument('--epochs', default=1000, type=int,
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
-parser.add_argument('--save-dir', default='baseline/lstm_save', type=str,
+parser.add_argument('--save-dir', default='baseline/moblstm_save', type=str,
                     metavar='PATH', help='model saved path')
 parser.add_argument('-b', '--batch-size', default=128, type=int,
                     metavar='BS',
@@ -65,8 +61,6 @@ parser.add_argument('--len', default=6, type=int,
                     metavar='LEN', help='the number of model input sequence length')
 parser.add_argument('--lr', default=0.001, type=float,
                     metavar='LR', help='initial (base) learning rate', dest='lr')
-parser.add_argument('--momentum', default=0.9, type=float,
-                    metavar='MOM', help='momentum')
 parser.add_argument('--wd', default=0.1, type=float,
                     metavar='WD', help='weight decay rate')
 
@@ -158,9 +152,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # create model
     print("=> creating model")
-    # model = Dronet(img_channels=3, num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    # model = mobilenet_v3(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    backbone = torchvision_models.mobilenet_v3_small(pretrained=True)
+    backbone = torchvision_models.mobilenet_v3_small(weights=(MobileNet_V3_Small_Weights.IMAGENET1K_V1))
     model = LSTM(
         backbone=backbone,
         extractor_dim=576,
@@ -188,12 +180,7 @@ def main_worker(gpu, ngpus_per_node, args):
     model = model.cuda(args.gpu)
     print(model)
 
-    # dronet: flops: 69.82 M, params: 1.58 M
-    # mobilenetv3: flops: 60.98 M, params: 1.04 M
-    # mobilenetv3+lstm8: flops: 468.26M, params: 18.27M
-    # mobilenetv3+lstm4: flops: 417.73 M, params: 9.87 M
-    # mobilenetv3+lstm4+loss+2linear: flops: 419.83 M, params: 10.65 M
-    # mobilenetv3+vit见main.py
+    # mobilenetv3+lstm4: flops: 419.83 M, params: 10.65 M
     flops, params = profile(model,
                             (torch.randn((1, args.len, 3, 224, 224)).cuda(args.gpu),
                              torch.randn((1, args.len, 2)).cuda(args.gpu)))
@@ -294,9 +281,6 @@ def main_worker(gpu, ngpus_per_node, args):
         transforms.ToTensor(),
         normalize,
     ])
-    # train_dataset = DronetTrainDataset(transform=train_transform, input_len=args.len - 1) + \
-    #                 DronetTrainDataset(transform=train_transform_aug, input_len=args.len - 1)
-    # test_dataset = DronetTestDataset(transform=val_transform, input_len=args.len - 1)
     train_dataset = OrderTrainDataset(transform=train_transform, input_len=args.len - 1) + \
                     OrderTrainDataset(transform=train_transform_aug, input_len=args.len - 1)
     test_dataset = OrderTestDataset(transform=val_transform, input_len=args.len - 1)

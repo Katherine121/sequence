@@ -23,18 +23,16 @@ import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
-import torchvision.models as torchvision_models
 from thop import profile
 from torch import nn
-from torchvision.models import ShuffleNet_V2_X1_0_Weights, MobileNet_V3_Small_Weights
 
 from torchvision.transforms import AutoAugment
 import torch.multiprocessing as mp
 
-from datasets import OrderTrainDataset, OrderTestDataset
+from baseline.dronet_datasets import DronetTrainDataset, DronetTestDataset
+from baseline.dronet import Dronet
+from baseline.other import resnet18, vgg16, shufflenet_v2, mobilenet_v3
 from utils import WeightedLoss
-
-from vit import ViT
 
 torch.set_printoptions(precision=8)
 
@@ -47,7 +45,7 @@ parser.add_argument('--epochs', default=1000, type=int,
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
-parser.add_argument('--save-dir', default='save11', type=str,
+parser.add_argument('--save-dir', default='baseline/shufflenet_save', type=str,
                     metavar='PATH', help='model saved path')
 parser.add_argument('-b', '--batch-size', default=128, type=int,
                     metavar='BS',
@@ -153,24 +151,13 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # create model
     print("=> creating model")
-    # backbone = torchvision_models.shufflenet_v2_x1_0(weights=(ShuffleNet_V2_X1_0_Weights.IMAGENET1K_V1))
-    backbone = torchvision_models.mobilenet_v3_small(weights=(MobileNet_V3_Small_Weights.IMAGENET1K_V1))
-
-    model = ViT(
-        backbone=backbone,
-        extractor_dim=576,
-        num_classes1=args.num_classes1,
-        num_classes2=args.num_classes2,
-        dim=512,
-        depth=6,
-        heads=8,
-        mlp_dim=1024,
-        pool='cls',
-        len=args.len,
-        dim_head=64,
-        dropout=0.1,
-        emb_dropout=0.1
-    )
+    # model = resnet18(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    # model = vgg16(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    # model = Dronet(img_channels=3, num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    model = shufflenet_v2(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    # model = mobilenet_v3(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    # model = swin
+    # model = deit
 
     # load from pre-trained, before DistributedDataParallel constructor
     if args.pretrained:
@@ -189,11 +176,13 @@ def main_worker(gpu, ngpus_per_node, args):
     model = model.cuda(args.gpu)
     print(model)
 
-    # shufflenetv2+vit: flops: 1003.86 M, params: 15.41 M
-    # ours(mobilenetv3+vit): flops: 457.56 M, params: 14.86 M
+    # resnet18: flops: 1823.63 M, params: 11.28 M
+    # vgg16: flops: 15351.75 M, params: 19.78 M
+    # dronet: flops: 69.82 M, params: 1.58 M
+    # shufflenetv2: flops: 151.89 M, params: 1.46 M
+    # mobilenetv3: flops: 60.98 M, params: 1.04 M
     flops, params = profile(model,
-                            (torch.randn((1, args.len, 3, 224, 224)).cuda(args.gpu),
-                             torch.randn((1, args.len, 2)).cuda(args.gpu)))
+                            (torch.randn((1, 3, 224, 224)).cuda(args.gpu),))
     print('flops: ', flops, 'params: ', params)
     print('flops: %.2f M, params: %.2f M' % (flops / 1000000.0, params / 1000000.0))
 
@@ -291,9 +280,9 @@ def main_worker(gpu, ngpus_per_node, args):
         transforms.ToTensor(),
         normalize,
     ])
-    train_dataset = OrderTrainDataset(transform=train_transform, input_len=args.len - 1) + \
-                    OrderTrainDataset(transform=train_transform_aug, input_len=args.len - 1)
-    test_dataset = OrderTestDataset(transform=val_transform, input_len=args.len - 1)
+    train_dataset = DronetTrainDataset(transform=train_transform, input_len=args.len - 1) + \
+                    DronetTrainDataset(transform=train_transform_aug, input_len=args.len - 1)
+    test_dataset = DronetTestDataset(transform=val_transform, input_len=args.len - 1)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -348,11 +337,8 @@ def main_worker(gpu, ngpus_per_node, args):
             file1.close()
 
             for name, param in criterion.named_parameters():
+                print(name)
                 print(param)
-                weight = param.cpu().detach().tolist()
-                with open(args.save_dir + "/lossweight.txt", "a") as file1:
-                    file1.write(str(weight[0]) + " " + str(weight[1]) + " " + str(weight[2]) + "\n")
-                file1.close()
             save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
@@ -394,12 +380,10 @@ def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_
     model.train()
 
     end = time.time()
-    for i, (images, next_angles, label1, label2, label3) in enumerate(train_loader):
+    for i, (images, label1, label2, label3) in enumerate(train_loader):
         if args.gpu is not None:
-            # b,len,3,224,224
+            # b,3,224,224
             images = images.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
-            # b,len,2
-            next_angles = next_angles.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
             # b
             label1 = label1.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
             # b
@@ -407,8 +391,8 @@ def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_
             # b,2
             label3 = label3.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
 
-        # b,len,3,224,224+b,len,2
-        output1, output2, output3 = model(images, next_angles)
+        # b,3,224,224
+        output1, output2, output3 = model(images)
 
         loss1 = criterion1(output1, label1)
         loss2 = criterion1(output2, label2)
@@ -457,12 +441,10 @@ def validate(val_loader, model, args):
     model.eval()
 
     with torch.no_grad():
-        for i, (images, next_angles, label1, label2, label3) in enumerate(val_loader):
+        for i, (images, label1, label2, label3) in enumerate(val_loader):
             if args.gpu is not None:
-                # b,len,3,224,224
+                # b,3,224,224
                 images = images.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
-                # b,len,2
-                next_angles = next_angles.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
                 # b
                 label1 = label1.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
                 # b
@@ -470,8 +452,8 @@ def validate(val_loader, model, args):
                 # b,2
                 label3 = label3.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
 
-            # b,len,3,224,224+b,len,2
-            output1, output2, output3 = model(images, next_angles)
+            # b,3,224,224
+            output1, output2, output3 = model(images)
 
             # _,是batch_size*概率，preds是batch_size*最大概率的列号
             _, preds = output1.max(1)

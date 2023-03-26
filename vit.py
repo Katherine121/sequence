@@ -8,6 +8,14 @@ def get_pad_mask(seq, pad_idx):
     return (seq != pad_idx).unsqueeze(-2)
 
 
+def get_subsequent_mask(seq):
+    ''' For masking out the subsequent info. '''
+    b, s = seq.size()
+    subsequent_mask = (1 - torch.triu(
+        torch.ones((1, s, s), device=seq.device), diagonal=1)).bool()
+    return subsequent_mask
+
+
 class Extractor(nn.Module):
     def __init__(self, backbone):
         super(Extractor, self).__init__()
@@ -121,8 +129,7 @@ class ViT(nn.Module):
 
         assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
 
-        self.pos_embedding = nn.Parameter(torch.randn(1, 1 + self.len, dim))
-        self.cls_token = nn.Parameter(torch.randn(1, 1, dim))
+        self.pos_embedding = nn.Parameter(torch.randn(1, self.len, dim))
         self.dropout = nn.Dropout(emb_dropout)
 
         self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)
@@ -149,10 +156,10 @@ class ViT(nn.Module):
 
     def forward(self, img, ang):
         # b,1,len
-        src_mask = get_pad_mask(img[:, :, 0, 0, 0].view(-1, self.len), pad_idx=0)
+        src_mask1 = get_pad_mask(img[:, :, 0, 0, 0].view(-1, self.len), pad_idx=0)
         # b,1,1 + len
         b = img.size(0)
-        src_mask = torch.cat((torch.ones(b, 1, 1).to(img.device), src_mask), dim=-1)
+        src_mask = src_mask1 & get_subsequent_mask(img[:, :, 0, 0, 0].view(-1, self.len))
 
         # 试试使用HOG特征
         # b,len,3,224,224->b*len,3,224,224->b*len,576->b,len,576
@@ -169,19 +176,19 @@ class ViT(nn.Module):
         # b,len,extractor_dim+dim->b,len,dim
         img = self.img_linear(img)
 
-        # b,1+len,dim
-        cls_tokens = repeat(self.cls_token, '1 1 d -> b 1 d', b=b)
-        img = torch.cat((cls_tokens, img), dim=1)
-
-        img[:, :1 + self.len, :] += self.pos_embedding[:, :1 + self.len, :]
+        img += self.pos_embedding
 
         img = self.dropout(img)
 
         img = self.transformer(img, src_mask)
 
-        img = img.mean(dim=1) if self.pool == 'mean' else img[:, 0]
+        res = torch.ones(b, self.dim).to(img.device)
+        for i in range(0, b):
+            # len,dim
+            pic = img[i]
+            res[i] = pic[src_mask1[i].sum() - 1]
 
-        img = self.mlp_head(img)
+        img = self.mlp_head(res)
         ang = img[:, self.dim:]
         img = img[:, 0: self.dim]
         return self.head_label(img), self.head_target(img), self.head_angle(ang)

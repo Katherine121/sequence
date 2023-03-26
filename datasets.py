@@ -4,7 +4,6 @@ import math
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
-import torch.nn.functional as F
 
 
 def write_img_angle(k):
@@ -27,6 +26,15 @@ def write_img_angle(k):
         for file1 in file_path1:
             full_file_path1 = os.path.join(full_dir_path1, file1)
 
+            # # **************************************************
+            # # 只需要跑一次
+            # if i % 2 != 0:
+            #     # 需要顺时针180°旋转图像
+            #     pic = Image.open(full_file_path1)
+            #     pic = pic.rotate(angle=180)
+            #     pic.save(full_file_path1)
+            # # **************************************************
+
             # 纬度
             lat_index = file1.find("lat")
             # 高度
@@ -47,6 +55,9 @@ def write_img_angle(k):
                     path.append((full_file_path1, j, eval(lat_pos), eval(lon_pos)))
                     break
 
+        # 正反两种路径
+        if i % 2 != 0:
+            path.reverse()
         res.append(path)
 
     res_delta = []
@@ -85,8 +96,7 @@ def write_img_angle(k):
 
             # 如果是终点
             if flag is False:
-                stone_part = path_delta[-1][-1]
-                next_part = (0, 0)
+                break
 
             # 终点图像
             dest_part = path[-1][0]
