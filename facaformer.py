@@ -5,11 +5,21 @@ from einops import rearrange, repeat
 
 
 def get_pad_mask(seq, pad_idx):
+    """
+    get padding mask for indicating valid frames in one input sequence.
+    :param seq: shape of (b, len).
+    :param pad_idx: 0.
+    :return: shape of (b, 1, len), if not equals to 0, set to 1, if equals to 0, set to 0.
+    """
     return (seq != pad_idx).unsqueeze(-2)
 
 
 def get_subsequent_mask(seq):
-    ''' For masking out the subsequent info. '''
+    """
+    get subsequent mask for masking the future frames.
+    :param seq: shape of (b, len).
+    :return: lower triangle shape of (b, len, len).
+    """
     b, s = seq.size()
     subsequent_mask = (1 - torch.triu(
         torch.ones((1, s, s), device=seq.device), diagonal=1)).bool()
@@ -18,33 +28,52 @@ def get_subsequent_mask(seq):
 
 class Extractor(nn.Module):
     def __init__(self, backbone):
+        """
+        Feature Extractor.
+        :param backbone: backbone of Feature Extractor (MobileNetV3 small).
+        """
         super(Extractor, self).__init__()
         self.backbone = backbone
         self.backbone.classifier = nn.Identity()
 
     def forward(self, x):
+        """
+        forward pass of Extractor.
+        :param x: the provided input tensor.
+        :return: the visual semantic features of an image.
+        """
         x = self.backbone(x)
         return x
 
 
-# helpers
-def pair(t):
-    return t if isinstance(t, tuple) else (t, t)
-
-
-# classes
 class PreNorm(nn.Module):
     def __init__(self, dim, fn):
+        """
+        pre normalization.
+        :param dim: input dimension of the last axis.
+        :param fn: next module.
+        """
         super().__init__()
         self.norm = nn.LayerNorm(dim)
         self.fn = fn
 
     def forward(self, x, mask, **kwargs):
+        """
+        forward pass of PreNorm.
+        :param x: the provided input tensor.
+        :return: the visual semantic features of input.
+        """
         return self.fn(self.norm(x), mask, **kwargs)
 
 
 class FeedForward(nn.Module):
     def __init__(self, dim, hidden_dim, dropout=0.):
+        """
+        full connection layer.
+        :param dim: input dimension.
+        :param hidden_dim: hidden dimension.
+        :param dropout: dropout rate.
+        """
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(dim, hidden_dim),
@@ -55,11 +84,23 @@ class FeedForward(nn.Module):
         )
 
     def forward(self, x, mask):
+        """
+        forward pass of FeedForward.
+        :param x: the provided input tensor.
+        :return: the visual semantic features of input.
+        """
         return self.net(x)
 
 
 class Attention(nn.Module):
-    def __init__(self, dim, heads=8, dim_head=64, dropout=0.):
+    def __init__(self, dim, heads, dim_head, dropout=0.):
+        """
+        masked multi-head self attention.
+        :param dim: input dimension.
+        :param heads: the number of heads.
+        :param dim_head: dimension of one head.
+        :param dropout: dropout rate.
+        """
         super().__init__()
         inner_dim = dim_head * heads
         project_out = not (heads == 1 and dim_head == dim)
@@ -78,13 +119,20 @@ class Attention(nn.Module):
         ) if project_out else nn.Identity()
 
     def forward(self, x, mask):
+        """
+        forward pass of Attention.
+        :param x: the provided input tensor.
+        :param mask: padding and subsequent mask.
+        :return: the visual semantic features of input.
+        """
         qkv = self.to_qkv(x).chunk(3, dim=-1)
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.heads), qkv)
 
         dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
 
         if mask is not None:
-            mask = mask.unsqueeze(1)  # For head axis broadcasting.
+            # for head axis broadcasting
+            mask = mask.unsqueeze(1)
             dots = dots.masked_fill(mask == 0, -1e9)
 
         attn = self.attend(dots)
@@ -97,6 +145,15 @@ class Attention(nn.Module):
 
 class Transformer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout=0.):
+        """
+        Transformer Encoder.
+        :param dim: input dimension.
+        :param depth: depth of Transformer Encoder.
+        :param heads: the number of heads in Masked MSA.
+        :param dim_head: dimension of one head.
+        :param mlp_dim: hidden dimension in FeedForward.
+        :param dropout: dropout rate.
+        """
         super().__init__()
         self.layers = nn.ModuleList([])
         for _ in range(depth):
@@ -106,17 +163,38 @@ class Transformer(nn.Module):
             ]))
 
     def forward(self, x, mask):
+        """
+        forward pass of Transformer Encoder.
+        :param x: the provided input tensor.
+        :param mask: padding and subsequent mask.
+        :return: the visual semantic features of input.
+        """
         for attn, ff in self.layers:
             x = attn(x, mask) + x
             x = ff(x, mask) + x
         return x
 
 
-class ViT(nn.Module):
+class FACAFormer(nn.Module):
     def __init__(self, *, backbone, extractor_dim,
-                 num_classes1, num_classes2,
-                 dim, depth, heads, mlp_dim, pool, len,
-                 dim_head, dropout=0., emb_dropout=0.):
+                 num_classes1, num_classes2, len,
+                 dim, depth, heads, dim_head, mlp_dim,
+                 dropout=0., emb_dropout=0.):
+        """
+        FACAFormer
+        :param backbone: backbone of Feature Extractor (MobileNetV3 small).
+        :param extractor_dim: output dimension of Feature Extractor.
+        :param num_classes1: output dimension of FACAFormer.
+        :param num_classes2: output dimension of FACAFormer.
+        :param len: input sequence length of FACAFormer.
+        :param dim: input dimension of FACAEncoder (ViT Encoder).
+        :param depth: depth of FACAEncoder.
+        :param heads: the number of heads in Masked MSA.
+        :param dim_head: dimension of one head.
+        :param mlp_dim: hidden dimension in FeedForward.
+        :param dropout: dropout rate.
+        :param emb_dropout: dropout rate after position embedding.
+        """
         super().__init__()
         self.extractor = Extractor(backbone)
         self.extractor_dim = extractor_dim
@@ -127,14 +205,10 @@ class ViT(nn.Module):
         # extractor_dim+dim
         self.img_linear = nn.Linear(self.extractor_dim + dim, dim)
 
-        assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
-
         self.pos_embedding = nn.Parameter(torch.randn(1, self.len, dim))
         self.dropout = nn.Dropout(emb_dropout)
 
         self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)
-
-        self.pool = pool
 
         self.mlp_head = nn.Linear(dim, 2 * dim)
         self.head_label = nn.Sequential(
@@ -146,7 +220,6 @@ class ViT(nn.Module):
             nn.Linear(dim, num_classes1)
         )
         self.head_angle = nn.Sequential(
-            # cbapd
             nn.LayerNorm(dim),
             nn.Hardtanh(),
             nn.Linear(dim, dim // 2),
@@ -155,39 +228,45 @@ class ViT(nn.Module):
         )
 
     def forward(self, img, ang):
+        """
+        forward pass of FACAFormer.
+        :param img: input frame sequence.
+        :param ang: input angle sequence.
+        :return: current milestone preds, next target milestone preds, next steering angle preds.
+        """
         # b,1,len
         src_mask1 = get_pad_mask(img[:, :, 0, 0, 0].view(-1, self.len), pad_idx=0)
-        # b,1,1 + len
+        # b,len,len
         b = img.size(0)
         src_mask = src_mask1 & get_subsequent_mask(img[:, :, 0, 0, 0].view(-1, self.len))
 
-        # 试试使用HOG特征
         # b,len,3,224,224->b*len,3,224,224->b*len,576->b,len,576
         img = self.extractor(img.view(-1, 3, 224, 224))
         img = img.view(-1, self.len, self.extractor_dim)
 
-        # b,len,2
+        # b,len,2->b,len,dim
         for i in range(1, self.len):
             ang[:, i, :] += ang[:, i - 1, :]
         ang = self.ang_linear(ang)
 
-        # b,len,extractor_dim+dim
-        img = torch.cat((img, ang), dim=-1)
         # b,len,extractor_dim+dim->b,len,dim
+        img = torch.cat((img, ang), dim=-1)
         img = self.img_linear(img)
 
         img += self.pos_embedding
-
         img = self.dropout(img)
 
         img = self.transformer(img, src_mask)
 
+        # b,len,dim->b,dim
         res = torch.ones(b, self.dim).to(img.device)
         for i in range(0, b):
             # len,dim
             pic = img[i]
+            # dim
             res[i] = pic[src_mask1[i].sum() - 1]
 
+        # b,dim->b,2*dim->2,b,dim
         img = self.mlp_head(res)
         ang = img[:, self.dim:]
         img = img[:, 0: self.dim]

@@ -1,13 +1,51 @@
 # sequence
+             
+│  bs_train.py  
+│  bs_train_one.py  
+│  datasets.py  
+│  draw.py  
+│  facaformer.py  
+│  main.py  
+│  README.md  
+│  requirements.txt  
+│  test.py  
+│  utils.py  
+│  
+├─baseline  
+│  │  bs_datasets.py  
+│  │  bs_models.py  
+│  
+└─processOrder  
+   │  process_datasets.py  
+   │  zhoumethod.py  
+   │  
+   ├─100  
+   │  │  cluster_centre.txt  
+   │  │  cluster_labels.txt  
+   │  │  cluster_pics.txt  
+   │  │  
+   │  ├─all_class  
+   │  │  
+   │  └─milestone_labels  
+   │  
+   ├─datasets  
+   │  
+   └─order
 
-python main.py \
+# Installation
+`pip install -r requirements.txt`
+
+# Prepare Datasets
+`python processOrder/process_datasets.py`
+
+# Train
+`python main.py \
 --dist-url 'tcp://localhost:10001' \
---multiprocessing-distributed --world-size 1 --rank 0
+--multiprocessing-distributed --world-size 1 --rank 0`
 
-python bs_train.py \
---dist-url 'tcp://localhost:10003' \
---multiprocessing-distributed --world-size 1 --rank 0
+# Test
+need to run on CPU
 
-python bs_train_one.py \
---dist-url 'tcp://localhost:10005' \
---multiprocessing-distributed --world-size 1 --rank 0
+`python test.py`
+
+# Citation

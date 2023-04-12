@@ -1,11 +1,3 @@
-#!/usr/bin/env python
-
-# Copyright (c) Facebook, Inc. and its affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 import argparse
 import math
 import os
@@ -14,9 +6,7 @@ import shutil
 import time
 import warnings
 import builtins
-
 import torch.distributed as dist
-
 import torch
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
@@ -27,28 +17,27 @@ import torchvision.models as torchvision_models
 from thop import profile
 from torch import nn
 from torchvision.models import ShuffleNet_V2_X1_0_Weights, MobileNet_V3_Small_Weights
-
 from torchvision.transforms import AutoAugment
 import torch.multiprocessing as mp
-
+from facaformer import FACAFormer
 from datasets import OrderTrainDataset, OrderTestDataset
-from utils import WeightedLoss
-
-from vit import ViT
+from utils import UncertaintyLoss
 
 torch.set_printoptions(precision=8)
 
-parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+parser = argparse.ArgumentParser(description='PyTorch Training')
 
 parser.add_argument('--start-epoch', default=0, type=int,
                     metavar='N', help='manual epoch number (useful on restarts)')
-parser.add_argument('--epochs', default=1000, type=int,
+parser.add_argument('--epochs', default=120, type=int,
                     metavar='N', help='number of total epochs to run')
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
 parser.add_argument('--save-dir', default='save11', type=str,
                     metavar='PATH', help='model saved path')
+parser.add_argument('--dataset-path', default='processOrder/datasets', type=str,
+                    metavar='PATH', help='dataset path')
 parser.add_argument('-b', '--batch-size', default=128, type=int,
                     metavar='BS',
                     help='mini-batch size (default: 128), this is the total '
@@ -57,13 +46,17 @@ parser.add_argument('-b', '--batch-size', default=128, type=int,
 parser.add_argument('--num_classes1', default=100, type=int,
                     metavar='N', help='the number of milestone labels')
 parser.add_argument('--num_classes2', default=2, type=int,
-                    metavar='N', help='the number of angle labels(latitude and longitude)')
+                    metavar='N', help='the number of angle labels (latitude and longitude)')
 parser.add_argument('--len', default=6, type=int,
-                    metavar='LEN', help='the number of model input sequence length')
+                    metavar='LEN', help='the number of model input sequence length (containing the destination frame)')
 parser.add_argument('--lr', default=0.001, type=float,
                     metavar='LR', help='initial (base) learning rate', dest='lr')
 parser.add_argument('--wd', default=0.1, type=float,
                     metavar='WD', help='weight decay rate')
+parser.add_argument('--T-0', default=5, type=int,
+                    metavar='T0', help='T_0')
+parser.add_argument('--T-mult', default=2, type=int,
+                    metavar='TMULT', help='T_mult')
 
 parser.add_argument('--pretrained', default='', type=str,
                     metavar='PATH', help='path to moco pretrained checkpoint')
@@ -94,6 +87,10 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 
 
 def main():
+    """
+    main program entry, responsible for multiprocessing distributed.
+    :return:
+    """
     args = parser.parse_args()
     if args.seed is not None:
         random.seed(args.seed)
@@ -128,6 +125,13 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node, args):
+    """
+    multiprocessing distributed process control: loading model, dataset, training and testing, saving checkpoint.
+    :param gpu: current gpu.
+    :param ngpus_per_node: the number of gpus of one machine.
+    :param args: program parameters.
+    :return:
+    """
     args.gpu = gpu
 
     # suppress printing if not master
@@ -156,21 +160,28 @@ def main_worker(gpu, ngpus_per_node, args):
     # backbone = torchvision_models.shufflenet_v2_x1_0(weights=(ShuffleNet_V2_X1_0_Weights.IMAGENET1K_V1))
     backbone = torchvision_models.mobilenet_v3_small(weights=(MobileNet_V3_Small_Weights.IMAGENET1K_V1))
 
-    model = ViT(
+    model = FACAFormer(
         backbone=backbone,
         extractor_dim=576,
         num_classes1=args.num_classes1,
         num_classes2=args.num_classes2,
+        len=args.len,
         dim=512,
         depth=6,
         heads=8,
-        mlp_dim=1024,
-        pool='cls',
-        len=args.len,
         dim_head=64,
+        mlp_dim=1024,
         dropout=0.1,
         emb_dropout=0.1
     )
+
+    # shufflenetv2+vit: flops: 1003.86 M, params: 15.41 M
+    # ours(mobilenetv3+vit): flops: 457.56 M, params: 14.86 M
+    flops, params = profile(model,
+                            (torch.randn((1, args.len, 3, 224, 224)),
+                             torch.randn((1, args.len, 2))))
+    print('flops: ', flops, 'params: ', params)
+    print('flops: %.2f M, params: %.2f M' % (flops / 1000000.0, params / 1000000.0))
 
     # load from pre-trained, before DistributedDataParallel constructor
     if args.pretrained:
@@ -185,17 +196,6 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> loaded pre-trained model '{}'".format(args.pretrained))
         else:
             print("=> no checkpoint found at '{}'".format(args.pretrained))
-
-    model = model.cuda(args.gpu)
-    print(model)
-
-    # shufflenetv2+vit: flops: 1003.86 M, params: 15.41 M
-    # ours(mobilenetv3+vit): flops: 457.56 M, params: 14.86 M
-    flops, params = profile(model,
-                            (torch.randn((1, args.len, 3, 224, 224)).cuda(args.gpu),
-                             torch.randn((1, args.len, 2)).cuda(args.gpu)))
-    print('flops: ', flops, 'params: ', params)
-    print('flops: %.2f M, params: %.2f M' % (flops / 1000000.0, params / 1000000.0))
 
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
@@ -223,23 +223,22 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         model = torch.nn.DataParallel(model).cuda()
 
-    # define loss function (criterion) and optimizer
+    # define loss function
     criterion1 = nn.CrossEntropyLoss().cuda(args.gpu)
     criterion2 = nn.MSELoss().cuda(args.gpu)
-    criterion = WeightedLoss(num=3)
+    criterion = UncertaintyLoss()
 
-    # optimize only the linear classifier
+    # optimize model parameters and loss parameters
     parameters = list(filter(lambda p: p.requires_grad, model.parameters())) + \
                  list(filter(lambda p: p.requires_grad, criterion.parameters()))
-    print(len(parameters))
-
     optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=args.wd)
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=args.T_0, T_mult=args.T_mult)
 
     best_acc1 = 0
     best_acc2 = 0
     best_acc3 = math.inf
 
+    # load from resume, start training from a certain epoch
     if args.resume:
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
@@ -260,14 +259,14 @@ def main_worker(gpu, ngpus_per_node, args):
             model.load_state_dict(checkpoint['state_dict'], strict=False)
             criterion.load_state_dict(checkpoint['loss_weight'], strict=False)
             print(criterion.params)
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+            # optimizer.load_state_dict(checkpoint['optimizer'])
+            # lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
-    # 降低CPU占用率的，在模型加载到GPU后使用
+    # reduce CPU usage, use it after the model is loaded onto the GPU
     torch.set_num_threads(1)
     cudnn.benchmark = True
 
@@ -279,6 +278,7 @@ def main_worker(gpu, ngpus_per_node, args):
         transforms.ToTensor(),
         normalize,
     ])
+    # data augment strategy
     train_transform_aug = transforms.Compose([
         transforms.RandomResizedCrop((224, 224)),
         AutoAugment(),
@@ -291,9 +291,10 @@ def main_worker(gpu, ngpus_per_node, args):
         transforms.ToTensor(),
         normalize,
     ])
-    train_dataset = OrderTrainDataset(transform=train_transform, input_len=args.len - 1) + \
-                    OrderTrainDataset(transform=train_transform_aug, input_len=args.len - 1)
-    test_dataset = OrderTestDataset(transform=val_transform, input_len=args.len - 1)
+    # load dataset
+    train_dataset = OrderTrainDataset(dataset_path=args.dataset_path, transform=train_transform, input_len=args.len - 1) + \
+                    OrderTrainDataset(dataset_path=args.dataset_path, transform=train_transform_aug, input_len=args.len - 1)
+    test_dataset = OrderTestDataset(dataset_path=args.dataset_path, transform=val_transform, input_len=args.len - 1)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -369,6 +370,19 @@ def main_worker(gpu, ngpus_per_node, args):
 
 
 def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_scheduler, epoch, args):
+    """
+    training process for one epoch.
+    :param train_loader: train dataloader.
+    :param model: model (mobilenetv3+vit / shufflenetv2+vit).
+    :param criterion1: ce.
+    :param criterion2: mse.
+    :param criterion: uncertainty loss.
+    :param optimizer: adamw.
+    :param lr_scheduler: CosineAnnealingWarmRestarts.
+    :param epoch: 120.
+    :param args:
+    :return: total loss and three head losses.
+    """
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     label_top = AverageMeter('LabelAcc@1', ':6.2f')
@@ -384,13 +398,6 @@ def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_
     total_loss2 = 0
     total_loss3 = 0
 
-    """
-    Switch to eval mode:
-    Under the protocol of linear classification on frozen features/models,
-    it is not legitimate to change any part of the pre-trained model.
-    BatchNorm in train mode may revise running mean/std (even if it receives
-    no gradient), which are part of the model parameters too.
-    """
     model.train()
 
     end = time.time()
@@ -431,7 +438,7 @@ def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_
         total_loss2 += loss2.item()
         total_loss3 += loss3.item()
 
-        # compute gradient and do SGD step
+        # compute gradient
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -448,6 +455,13 @@ def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_
 
 
 def validate(val_loader, model, args):
+    """
+    validating process for one epoch.
+    :param val_loader: test dataloader.
+    :param model: model (mobilenetv3+vit / shufflenetv2+vit).
+    :param args:
+    :return: three head accuracies.
+    """
     total_correct_label = 0
     total_correct_target = 0
     total_correct_angle_avg = 0
@@ -473,7 +487,7 @@ def validate(val_loader, model, args):
             # b,len,3,224,224+b,len,2
             output1, output2, output3 = model(images, next_angles)
 
-            # _,是batch_size*概率，preds是batch_size*最大概率的列号
+            # measure accuracy
             _, preds = output1.max(1)
             num_correct = (preds == label1).sum()
             num_samples = preds.size(0)
@@ -499,7 +513,13 @@ def validate(val_loader, model, args):
 
 
 def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
+    """
+    computes the accuracy over the k top predictions for the specified values of k.
+    :param output: actual output of the model.
+    :param target: ground truth label.
+    :param topk:
+    :return: top-k acc.
+    """
     with torch.no_grad():
         maxk = max(topk)
         batch_size = target.size(0)
@@ -516,6 +536,12 @@ def accuracy(output, target, topk=(1,)):
 
 
 def angle_diff(output, target):
+    """
+    compute angle difference between prediction and label.
+    :param output: actual output of the model.
+    :param target: ground truth label.
+    :return: average degree error within a batch (MAE).
+    """
     # b,2->b,1
     output_tan = output[:, 0] / output[:, 1]
     output_rad = torch.atan(output_tan)
@@ -526,7 +552,7 @@ def angle_diff(output, target):
     target_rad = torch.atan(target_tan)
     target_ang = target_rad * 180 / torch.pi
 
-    # 由于atan只能计算-90~+90，所以需要转换到-180~180
+    # since atan can only calculate [-90, 90], it needs to be converted to [-180, 180]
     for i in range(0, output.size(0)):
         if output[i, 0] >= 0 and output[i, 1] >= 0:
             continue
@@ -537,7 +563,6 @@ def angle_diff(output, target):
         elif output[i, 0] <= 0 and output[i, 1] <= 0:
             output_ang[i] -= 180
 
-    # 由于atan只能计算-90~+90，所以需要转换到-180~180
     for i in range(0, target.size(0)):
         if target[i, 0] >= 0 and target[i, 1] >= 0:
             continue
@@ -549,14 +574,22 @@ def angle_diff(output, target):
             target_ang[i] -= 180
 
     diff = torch.abs(output_ang - target_ang)
-    # 处理差距大于180的情况，这种情况下，有可能差距小于threshold
+    # deal with the situation when the gap is greater than 180
     diff = torch.where(diff > 180, 360 - diff, diff)
 
-    # 返回batch内小于阈值的角度
     return diff.sum()
 
 
 def save_checkpoint(state, label_is_best, target_is_best, angle_avg_is_best, args):
+    """
+    save checkpoint.
+    :param state: model parameters.
+    :param label_is_best:
+    :param target_is_best:
+    :param angle_avg_is_best:
+    :param args:
+    :return:
+    """
     torch.save(state, args.save_dir + "/checkpoint.pth.tar")
     if label_is_best:
         shutil.copyfile(args.save_dir + "/checkpoint.pth.tar",
@@ -570,8 +603,9 @@ def save_checkpoint(state, label_is_best, target_is_best, angle_avg_is_best, arg
 
 
 class AverageMeter(object):
-    """Computes and stores the average and current value"""
-
+    """
+    Computes and stores the average and current value
+    """
     def __init__(self, name, fmt=':f'):
         self.name = name
         self.fmt = fmt
