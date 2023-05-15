@@ -1,12 +1,11 @@
 import torch
 from torch import nn
-
-from einops import rearrange, repeat
+from einops import rearrange
 
 
 def get_pad_mask(seq, pad_idx):
     """
-    get padding mask for indicating valid frames in one input sequence.
+    get the padding mask for indicating valid frames in the input sequence.
     :param seq: shape of (b, len).
     :param pad_idx: 0.
     :return: shape of (b, 1, len), if not equals to 0, set to 1, if equals to 0, set to 0.
@@ -16,7 +15,7 @@ def get_pad_mask(seq, pad_idx):
 
 def get_subsequent_mask(seq):
     """
-    get subsequent mask for masking the future frames.
+    get the subsequent mask for masking the future frames.
     :param seq: shape of (b, len).
     :return: lower triangle shape of (b, len, len).
     """
@@ -26,19 +25,19 @@ def get_subsequent_mask(seq):
     return subsequent_mask
 
 
-class Extractor(nn.Module):
+class SequenceFeatureEncoder(nn.Module):
     def __init__(self, backbone):
         """
-        Feature Extractor.
-        :param backbone: backbone of Feature Extractor (MobileNetV3 small).
+        Sequence Feature Encoder.
+        :param backbone: backbone of Sequence Feature Encoder (MobileNetV3 small).
         """
-        super(Extractor, self).__init__()
+        super(SequenceFeatureEncoder, self).__init__()
         self.backbone = backbone
         self.backbone.classifier = nn.Identity()
 
     def forward(self, x):
         """
-        forward pass of Extractor.
+        forward pass of Sequence Feature Encoder.
         :param x: the provided input tensor.
         :return: the visual semantic features of an image.
         """
@@ -143,12 +142,12 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 
-class Transformer(nn.Module):
+class CrossAttentionMixer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout=0.):
         """
-        Transformer Encoder.
+        Cross Attention Mixer.
         :param dim: input dimension.
-        :param depth: depth of Transformer Encoder.
+        :param depth: depth of Cross Attention Mixer (Transformer Decoder).
         :param heads: the number of heads in Masked MSA.
         :param dim_head: dimension of one head.
         :param mlp_dim: hidden dimension in FeedForward.
@@ -164,7 +163,7 @@ class Transformer(nn.Module):
 
     def forward(self, x, mask):
         """
-        forward pass of Transformer Encoder.
+        forward pass of Cross Attention Mixer.
         :param x: the provided input tensor.
         :param mask: padding and subsequent mask.
         :return: the visual semantic features of input.
@@ -175,20 +174,20 @@ class Transformer(nn.Module):
         return x
 
 
-class FACAFormer(nn.Module):
+class ARTransformer(nn.Module):
     def __init__(self, *, backbone, extractor_dim,
                  num_classes1, num_classes2, len,
                  dim, depth, heads, dim_head, mlp_dim,
                  dropout=0., emb_dropout=0.):
         """
-        FACAFormer
-        :param backbone: backbone of Feature Extractor (MobileNetV3 small).
-        :param extractor_dim: output dimension of Feature Extractor.
-        :param num_classes1: output dimension of FACAFormer.
-        :param num_classes2: output dimension of FACAFormer.
-        :param len: input sequence length of FACAFormer.
-        :param dim: input dimension of FACAEncoder (ViT Encoder).
-        :param depth: depth of FACAEncoder.
+        ARTransformer
+        :param backbone: backbone of Sequence Feature Encoder (MobileNetV3 small).
+        :param extractor_dim: output dimension of Sequence Feature Encoder.
+        :param num_classes1: output dimension of ARTransformer.
+        :param num_classes2: output dimension of ARTransformer.
+        :param len: input sequence length of ARTransformer.
+        :param dim: input dimension of Cross Attention Mixer.
+        :param depth: depth of Cross Attention Mixer.
         :param heads: the number of heads in Masked MSA.
         :param dim_head: dimension of one head.
         :param mlp_dim: hidden dimension in FeedForward.
@@ -196,19 +195,19 @@ class FACAFormer(nn.Module):
         :param emb_dropout: dropout rate after position embedding.
         """
         super().__init__()
-        self.extractor = Extractor(backbone)
+        self.extractor = SequenceFeatureEncoder(backbone)
         self.extractor_dim = extractor_dim
         self.dim = dim
         self.len = len
 
-        self.ang_linear = nn.Linear(2, dim)
+        self.ang_linear = nn.Linear(num_classes2, dim)
         # extractor_dim+dim
         self.img_linear = nn.Linear(self.extractor_dim + dim, dim)
 
         self.pos_embedding = nn.Parameter(torch.randn(1, self.len, dim))
         self.dropout = nn.Dropout(emb_dropout)
 
-        self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)
+        self.transformer = CrossAttentionMixer(dim, depth, heads, dim_head, mlp_dim, dropout)
 
         self.mlp_head = nn.Linear(dim, 2 * dim)
         self.head_label = nn.Sequential(
@@ -229,10 +228,10 @@ class FACAFormer(nn.Module):
 
     def forward(self, img, ang):
         """
-        forward pass of FACAFormer.
+        forward pass of ARTransformer.
         :param img: input frame sequence.
         :param ang: input angle sequence.
-        :return: current milestone preds, next target milestone preds, next steering angle preds.
+        :return: the current position preds, the next position preds, the direction angle preds.
         """
         # b,1,len
         src_mask1 = get_pad_mask(img[:, :, 0, 0, 0].view(-1, self.len), pad_idx=0)

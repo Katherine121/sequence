@@ -3,7 +3,7 @@ import timm.models
 import torch
 import torchvision.models
 from torch import nn
-from torchvision.models import ViT_B_16_Weights, Swin_T_Weights, \
+from torchvision.models import Swin_T_Weights, \
     ResNet18_Weights, EfficientNet_B3_Weights, \
     ShuffleNet_V2_X1_0_Weights, MobileNet_V3_Small_Weights
 
@@ -27,7 +27,7 @@ class swint(nn.Module):
         """
         forward pass of swint.
         :param x: the provided input tensor.
-        :return: current milestone preds, next target milestone preds, next steering angle preds.
+        :return: the current position, the next position, the direction angle.
         """
         x = self.backbone(x)
         return self.head_label(x), self.head_target(x), self.head_angle(x)
@@ -45,17 +45,15 @@ class vit(nn.Module):
         in_features = 768
         self.backbone.head = nn.Identity()
         self.head_label = nn.Linear(in_features, num_classes1)
-        self.head_target = nn.Linear(in_features, num_classes1)
-        self.head_angle = nn.Linear(in_features, num_classes2)
 
     def forward(self, x):
         """
         forward pass of vit.
         :param x: the provided input tensor.
-        :return: current milestone preds, next target milestone preds, next steering angle preds.
+        :return: the current position.
         """
         x = self.backbone(x)
-        return self.head_label(x), self.head_target(x), self.head_angle(x)
+        return self.head_label(x)
 
 
 class resnet18(nn.Module):
@@ -70,17 +68,15 @@ class resnet18(nn.Module):
         in_features = self.backbone.fc.in_features
         self.backbone.fc = nn.Identity()
         self.head_label = nn.Linear(in_features, num_classes1)
-        self.head_target = nn.Linear(in_features, num_classes1)
-        self.head_angle = nn.Linear(in_features, num_classes2)
 
     def forward(self, x):
         """
         forward pass of resnet18.
         :param x: the provided input tensor.
-        :return: current milestone preds, next target milestone preds, next steering angle preds.
+        :return: the current position.
         """
         x = self.backbone(x)
-        return self.head_label(x), self.head_target(x), self.head_angle(x)
+        return self.head_label(x)
 
 
 class efficientb3(nn.Module):
@@ -102,7 +98,7 @@ class efficientb3(nn.Module):
         """
         forward pass of efficientb3.
         :param x: the provided input tensor.
-        :return: current milestone preds, next target milestone preds, next steering angle preds.
+        :return: the current position, the next position, the direction angle.
         """
         x = self.backbone(x)
         return self.head_label(x), self.head_target(x), self.head_angle(x)
@@ -174,7 +170,7 @@ class Dronet(nn.Module):
         """
         forward pass of Dronet.
         :param x: the provided input tensor.
-        :return: current milestone preds, next target milestone preds, next steering angle preds.
+        :return: the current position, the next position, the direction angle.
         """
         bn_idx = 0
         conv_idx = 1
@@ -231,7 +227,7 @@ class shufflenet_v2(nn.Module):
         """
         forward pass of shufflenet_v2.
         :param x: the provided input tensor.
-        :return: current milestone preds, next target milestone preds, next steering angle preds.
+        :return: the current position, the next position, the direction angle.
         """
         x = self.backbone(x)
         return self.head_label(x), self.head_target(x), self.head_angle(x)
@@ -256,7 +252,7 @@ class mobilenet_v3(nn.Module):
         """
         forward pass of mobilenet_v3.
         :param x: the provided input tensor.
-        :return: current milestone preds, next target milestone preds, next steering angle preds.
+        :return: the current position, the next position, the direction angle.
         """
         x = self.backbone(x)
         return self.head_label(x), self.head_target(x), self.head_angle(x)
@@ -329,7 +325,7 @@ class LSTM(nn.Module):
         forward pass of baseline.
         :param img: input frame sequence.
         :param ang: input angle sequence.
-        :return: current milestone preds, next target milestone preds, next steering angle preds.
+        :return: the current position, the next position, the direction angle.
         """
         # b,len,3,224,224->b*len,3,224,224->b*len,576->b,len,576
         img = self.extractor(img.view(-1, 3, 224, 224))

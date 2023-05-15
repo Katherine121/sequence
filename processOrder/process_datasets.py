@@ -90,9 +90,9 @@ def euclidean_distance(pos1, pos2):
 
 def images_clustering(path, k, epoch):
     """
-    cluster images in the dataset to different milestones.
+    cluster images in the dataset to different positions.
     :param path: dataset path.
-    :param k: the number of clusters(milestones).
+    :param k: the number of clusters(positions).
     :param epoch: the number of cluster epochs.
     :return: cluster center and cluster results.
     """
@@ -194,7 +194,7 @@ def images_clustering(path, k, epoch):
 def copy_clusters(k):
     """
     copy cluster results(images) to corresponding k directories.
-    :param k: the number of clusters(milestones).
+    :param k: the number of clusters(positions).
     :return:
     """
     i = 0
@@ -218,14 +218,14 @@ def copy_clusters(k):
     f.close()
 
 
-def get_milestone_labels(path1, k):
+def get_cluster_labels(path1, k):
     """
-    get the milestone labels in trajectories.
-    :param k: the number of clusters(milestones).
+    get the cluster(position) labels in routes.
+    :param k: the number of clusters(positions).
     :return:
     """
     path2 = str(k) + "/all_class"
-    path3 = str(k) + "/milestone_labels"
+    path3 = str(k) + "/cluster_labels"
 
     if os.path.exists(path3) is False:
         os.mkdir(path3)
@@ -252,7 +252,7 @@ def get_milestone_labels(path1, k):
                 full_dir_path2 = os.path.join(path2, str(i))
                 full_file_path2 = os.path.join(full_dir_path2, file1)
                 # if find the existance in i-th cluster directory,
-                # the corresponding milestone label is assigned
+                # the corresponding position label i is assigned
                 if os.path.exists(full_file_path2):
                     with open(file_path3, "a") as f1:
                         f1.write(str(i) + "\n")
@@ -263,7 +263,7 @@ def get_milestone_labels(path1, k):
 def replace_pics(k):
     """
     replace the images blank and non-readable with images in the same cluster.
-    :param k: the number of clusters(milestones).
+    :param k: the number of clusters(positions).
     :return:
     """
     res = []
@@ -306,7 +306,7 @@ def replace_pics(k):
 def copy_replaced_pics(path1, k):
     """
     replace the images blank and non-readable in the origin dataset with images in the corresponding cluster.
-    :param k: the number of clusters(milestones).
+    :param k: the number of clusters(positions).
     :return:
     """
     res = []
@@ -349,7 +349,7 @@ def copy_replaced_pics(path1, k):
 def prepare_dataset(path1, k):
     """
     prepare for dataset.
-    :param k: the number of milestones.
+    :param k: the number of clusters(positions).
     :return:
     """
     path2 = str(k) + "/all_class"
@@ -395,7 +395,7 @@ def prepare_dataset(path1, k):
                 full_dir_path2 = os.path.join(path2, str(j))
                 full_file_path2 = os.path.join(full_dir_path2, file1)
                 if os.path.exists(full_file_path2):
-                    # frame, milestone label, position
+                    # frame, position label, coordinates
                     path.append((full_file_path1, j, eval(lat_pos), eval(lon_pos)))
                     break
 
@@ -404,8 +404,8 @@ def prepare_dataset(path1, k):
             path.reverse()
         res.append(path)
 
-    # calculate frame, angle, destination frame,
-    # the current milestone label, the next milestone label, the next steering angle
+    # calculate frame, angle, end point frame,
+    # the current position label, the next position label, the direction angle
     # for every frame
     res_delta = []
     for path in res:
@@ -414,40 +414,40 @@ def prepare_dataset(path1, k):
         for i in range(0, len(path)):
             flag = False
             for j in range(i + 1, len(path)):
-                # if find the next milestone (if it is not destination)
+                # if find the next position (if it is not the end point)
                 if path[j][1] != path[i][1]:
-                    # calculate the steering angle required to reach the next milestone
+                    # calculate the direction angle to arrive at the next position
                     lat_delta = (path[j][2] - path[i][2]) * 111000
                     lon_delta = (path[j][3] - path[i][3]) * 111000 * math.cos(path[i][2] / 180 * math.pi)
                     sum = math.sqrt(lat_delta * lat_delta + lon_delta * lon_delta)
                     sin = lat_delta / sum
                     cos = lon_delta / sum
 
-                    # part of final labels: the next target milestone, the next steering angle
+                    # part of final labels: the next position label, the direction angle to arrive at the next position
                     stone_part = (path[j][1], sin, cos)
 
-                    # calculate the steering angle at the next moment
+                    # calculate the direction angle at the next moment
                     lat_delta = (path[i + 1][2] - path[i][2]) * 111000
                     lon_delta = (path[i + 1][3] - path[i][3]) * 111000 * math.cos(path[i][2] / 180 * math.pi)
                     sum = math.sqrt(lat_delta * lat_delta + lon_delta * lon_delta)
                     sin = lat_delta / sum
                     cos = lon_delta / sum
 
-                    # part of model input: angle
+                    # part of model input: the direction angle at the next moment
                     next_part = (sin, cos)
 
                     # exit
                     flag = True
                     break
 
-            # if it is destination, discard from dataset
+            # if it is the end point, discard from dataset
             if flag is False:
                 break
 
-            # if it is not destination, add it to dataset
+            # if it is not the end point, add it to dataset
 
-            # frame, angle, destination frame,
-            # the current milestone label, the next milestone label, the next steering angle
+            # frame, angle, end point frame,
+            # the current position, the next position, the direction angle
             path_delta.append((path[i][0], next_part, path[-1][0], path[i][1], stone_part))
 
         res_delta.append(path_delta)
@@ -478,19 +478,19 @@ if __name__ == "__main__":
     # # 3. delete the extra images 75986:15, 83832:3, 97128: all
     # # we can find the dataset in this step in the USB drive
     #
-    # # 4. cluster images in the dataset to different milestones
-    # images_clustering(path="order", k=100, epoch=400)
-    # # 5. copy cluster results(images) to corresponding k directories
-    # copy_clusters(k=100)
-    # # 6. get the milestone labels in trajectories
-    # get_milestone_labels(path1="order", k=100)
-    #
+    # 4. cluster images in the dataset to different positions
+    images_clustering(path="order", k=100, epoch=400)
+    # 5. copy cluster results(images) to corresponding k directories
+    copy_clusters(k=100)
+    # 6. get the position labels in routes
+    get_cluster_labels(path1="order", k=100)
+
     # # 7. replace the images blank and non-readable with images in the same cluster.
     # # 8. replace the images blank and non-readable in the origin dataset with images in the corresponding cluster
     # replace_pics(k=100)
     # copy_replaced_pics(path1="order", k=100)
 
-    # 9. calculate frame, angle, destination frame,
-    #    the current milestone label, the next milestone label, the next steering angle
+    # 9. calculate frame, angle, end point frame,
+    #    the current position, the next position, the direction angle
     #    for every frame
     prepare_dataset(path1="order", k=100)

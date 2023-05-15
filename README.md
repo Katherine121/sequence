@@ -1,14 +1,20 @@
 # sequence
-             
+# Background
+In this project, we propose a novel angle robustness navigation paradigm to deal with flight deviation and 
+design an angle robustness point-to-point navigation model for predicting direction angle directly.
+In order to evaluate vision-based navigation methods in real scenarios, we collect a new dataset UAV_AR184 and 
+design Simulation Flight Testing Instrument (SFTI) with Google Earth, 
+which can simulate real-world flight deviation effectively and avoid the cost of real flight testing.
+
+# Project Structure             
 │  bs_train.py  
 │  bs_train_one.py  
 │  datasets.py  
-│  draw.py  
-│  facaformer.py  
+│  draw.py
 │  main.py  
+│  model.py  
 │  README.md  
 │  requirements.txt  
-│  test.py  
 │  utils.py  
 │  
 ├─baseline  
@@ -26,17 +32,26 @@
    │  │  
    │  ├─all_class  
    │  │  
-   │  └─milestone_labels  
+   │  └─cluster_labels  
    │  
    ├─datasets  
    │  
    └─order
 
-# Installation
+# Install
 `pip install -r requirements.txt`
 
 # Prepare Datasets
-`python processOrder/process_datasets.py`
+Our dataset UAV_AR184 will be publicly available at xxxx
+In this dataset, we can find a directory named 'order'.
+In the directory, there are 184 subdirectories which represent realistic UAV flight routes.
+In each route, there are different number of images equipped with specified coordinates from the start point to the end point.
+
+To use this dataset to train / test our model, you should run the commands below:
+`mkdir processOrder
+mv order processOrder/
+cd processOrder
+python process_datasets.py`
 
 # Train
 `python main.py \
@@ -44,8 +59,6 @@
 --multiprocessing-distributed --world-size 1 --rank 0`
 
 # Test
-need to run on CPU
-
-`python test.py`
+please reference to project AngleRobustnessTest
 
 # Citation

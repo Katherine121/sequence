@@ -32,7 +32,7 @@ parser.add_argument('--epochs', default=120, type=int,
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
-parser.add_argument('--save-dir', default='baseline/vit_save', type=str,
+parser.add_argument('--save-dir', default='baseline/resnet_save', type=str,
                     metavar='PATH', help='model saved path')
 parser.add_argument('--dataset-path', default='processOrder/datasets', type=str,
                     metavar='PATH', help='dataset path')
@@ -42,11 +42,11 @@ parser.add_argument('-b', '--batch-size', default=128, type=int,
                          'batch size of all GPUs on all nodes when '
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--num_classes1', default=100, type=int,
-                    metavar='N', help='the number of milestone labels')
+                    metavar='N', help='the number of position labels')
 parser.add_argument('--num_classes2', default=2, type=int,
                     metavar='N', help='the number of angle labels (latitude and longitude)')
 parser.add_argument('--len', default=6, type=int,
-                    metavar='LEN', help='the number of model input sequence length (containing the destination frame)')
+                    metavar='LEN', help='the number of model input sequence length (containing the end point frame)')
 parser.add_argument('--lr', default=0.001, type=float,
                     metavar='LR', help='initial (base) learning rate', dest='lr')
 parser.add_argument('--wd', default=0.1, type=float,
@@ -156,8 +156,8 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     print("=> creating model")
     # model = swint(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    model = vit(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    # model = resnet18(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    # model = vit(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    model = resnet18(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
     # model = efficientb3(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
     # model = Dronet(img_channels=3, num_classes1=args.num_classes1, num_classes2=args.num_classes2)
     # model = shufflenet_v2(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
@@ -402,28 +402,20 @@ def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_
             label3 = label3.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
 
         # b,3,224,224
-        output1, output2, output3 = model(images)
+        output1 = model(images)
 
         loss1 = criterion1(output1, label1)
-        loss2 = criterion1(output2, label2)
-        loss3 = criterion2(output3, label3)
 
-        loss = criterion([loss1, loss2, loss3])
+        loss = loss1
 
         # measure accuracy and record loss
         label_acc, _ = accuracy(output1, label1, topk=(1, 5))
-        target_acc, _ = accuracy(output2, label2, topk=(1, 5))
-        angle_acc_avg = angle_diff(output3, label3)
 
         losses.update(loss.item(), images.size(0))
         label_top.update(label_acc[0], images.size(0))
-        target_top.update(target_acc[0], images.size(0))
-        angle_top.update(angle_acc_avg / images.size(0), images.size(0))
 
         total_loss += loss.item()
         total_loss1 += loss1.item()
-        total_loss2 += loss2.item()
-        total_loss3 += loss3.item()
 
         # compute gradient
         optimizer.zero_grad()
@@ -470,7 +462,7 @@ def validate(val_loader, model, args):
                 label3 = label3.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
 
             # b,3,224,224
-            output1, output2, output3 = model(images)
+            output1 = model(images)
 
             # measure accuracy
             _, preds = output1.max(1)
@@ -478,13 +470,6 @@ def validate(val_loader, model, args):
             num_samples = preds.size(0)
             total_correct_label += num_correct.item()
             total_samples += num_samples
-
-            _, preds = output2.max(1)
-            num_correct = (preds == label2).sum()
-            total_correct_target += num_correct.item()
-
-            preds_avg = angle_diff(output3, label3)
-            total_correct_angle_avg += preds_avg.item()
 
     label_acc = float(total_correct_label / total_samples)
     taget_acc = float(total_correct_target / total_samples)
@@ -522,10 +507,10 @@ def accuracy(output, target, topk=(1,)):
 
 def angle_diff(output, target):
     """
-    compute angle difference between prediction and label.
+    compute Mean Absolute Angle Error(MAAE) between prediction and label.
     :param output: actual output of the model.
     :param target: ground truth label.
-    :return: average degree error within a batch (MAE).
+    :return: Mean Absolute Angle Error(MAAE) within a batch.
     """
     # b,2->b,1
     output_tan = output[:, 0] / output[:, 1]

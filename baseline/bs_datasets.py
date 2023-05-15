@@ -29,9 +29,9 @@ class DronetTrainDataset(Dataset):
                     line = line.split(' ')
 
                     # read frame, angle,
-                    # destination frame,
-                    # the current milestone label,
-                    # the next milestone label, the next steering angle
+                    # end point frame,
+                    # the current position label,
+                    # the next position label, the direction angle
                     line = [line[0], [float(line[1]), float(line[2])],
                             line[3],
                             int(line[4]),
@@ -60,7 +60,7 @@ class DronetTrainDataset(Dataset):
         """
         read the image and label corresponding to the index in the dataset.
         :param index: index of self.imgs.
-        :return: image, the current milestone, the next target milestone, the next steering angle.
+        :return: image, the current position, the next position, the direction angle.
         """
         item = self.imgs[index]
 
@@ -73,7 +73,7 @@ class DronetTrainDataset(Dataset):
         stone_img = item[-1][4]
         stone_angle = torch.tensor(item[-1][5], dtype=torch.float)
 
-        # image, the current milestone, the next target milestone, the next steering angle
+        # image, the current position, the next position, the direction angle
         return img, label, stone_img, stone_angle
 
 
@@ -102,9 +102,9 @@ class DronetTestDataset(Dataset):
                     line = line.split(' ')
 
                     # read frame, angle,
-                    # destination frame,
-                    # the current milestone label,
-                    # the next milestone label, the next steering angle
+                    # end point frame,
+                    # the current position label,
+                    # the next position label, the direction angle
                     line = [line[0], [float(line[1]), float(line[2])],
                             line[3],
                             int(line[4]),
@@ -133,7 +133,7 @@ class DronetTestDataset(Dataset):
         """
         read the image and label corresponding to the index in the dataset.
         :param index: index of self.imgs.
-        :return: image, the current milestone, the next target milestone, the next steering angle.
+        :return: image, the current position, the next position, the direction angle.
         """
         item = self.imgs[index]
 
@@ -146,5 +146,5 @@ class DronetTestDataset(Dataset):
         stone_img = item[-1][4]
         stone_angle = torch.tensor(item[-1][5], dtype=torch.float)
 
-        # image, the current milestone, the next target milestone, the next steering angle
+        # image, the current position, the next position, the direction angle
         return img, label, stone_img, stone_angle

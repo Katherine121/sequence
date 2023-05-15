@@ -19,7 +19,7 @@ from torch import nn
 from torchvision.models import ShuffleNet_V2_X1_0_Weights, MobileNet_V3_Small_Weights
 from torchvision.transforms import AutoAugment
 import torch.multiprocessing as mp
-from facaformer import FACAFormer
+from model import ARTransformer
 from datasets import OrderTrainDataset, OrderTestDataset
 from utils import UncertaintyLoss
 
@@ -34,7 +34,7 @@ parser.add_argument('--epochs', default=120, type=int,
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
-parser.add_argument('--save-dir', default='save11', type=str,
+parser.add_argument('--save-dir', default='save12', type=str,
                     metavar='PATH', help='model saved path')
 parser.add_argument('--dataset-path', default='processOrder/datasets', type=str,
                     metavar='PATH', help='dataset path')
@@ -44,11 +44,11 @@ parser.add_argument('-b', '--batch-size', default=128, type=int,
                          'batch size of all GPUs on all nodes when '
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--num_classes1', default=100, type=int,
-                    metavar='N', help='the number of milestone labels')
+                    metavar='N', help='the number of position labels')
 parser.add_argument('--num_classes2', default=2, type=int,
                     metavar='N', help='the number of angle labels (latitude and longitude)')
 parser.add_argument('--len', default=6, type=int,
-                    metavar='LEN', help='the number of model input sequence length (containing the destination frame)')
+                    metavar='LEN', help='the number of model input sequence length (containing the end point frame)')
 parser.add_argument('--lr', default=0.001, type=float,
                     metavar='LR', help='initial (base) learning rate', dest='lr')
 parser.add_argument('--wd', default=0.1, type=float,
@@ -160,7 +160,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # backbone = torchvision_models.shufflenet_v2_x1_0(weights=(ShuffleNet_V2_X1_0_Weights.IMAGENET1K_V1))
     backbone = torchvision_models.mobilenet_v3_small(weights=(MobileNet_V3_Small_Weights.IMAGENET1K_V1))
 
-    model = FACAFormer(
+    model = ARTransformer(
         backbone=backbone,
         extractor_dim=576,
         num_classes1=args.num_classes1,
@@ -175,8 +175,8 @@ def main_worker(gpu, ngpus_per_node, args):
         emb_dropout=0.1
     )
 
-    # shufflenetv2+vit: flops: 1003.86 M, params: 15.41 M
-    # ours(mobilenetv3+vit): flops: 457.56 M, params: 14.86 M
+    # shufflenetv2+vit: flops: 991.25 M, params: 15.41 M
+    # ours(mobilenetv3+vit): flops: 444.95 M, params: 14.86 M
     flops, params = profile(model,
                             (torch.randn((1, args.len, 3, 224, 224)),
                              torch.randn((1, args.len, 2))))
@@ -537,10 +537,10 @@ def accuracy(output, target, topk=(1,)):
 
 def angle_diff(output, target):
     """
-    compute angle difference between prediction and label.
+    compute Mean Absolute Angle Error(MAAE) between prediction and label.
     :param output: actual output of the model.
     :param target: ground truth label.
-    :return: average degree error within a batch (MAE).
+    :return: Mean Absolute Angle Error(MAAE) within a batch.
     """
     # b,2->b,1
     output_tan = output[:, 0] / output[:, 1]

@@ -44,11 +44,11 @@ parser.add_argument('-b', '--batch-size', default=128, type=int,
                          'batch size of all GPUs on all nodes when '
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--num_classes1', default=100, type=int,
-                    metavar='N', help='the number of milestone labels')
+                    metavar='N', help='the number of position labels')
 parser.add_argument('--num_classes2', default=2, type=int,
                     metavar='N', help='the number of angle labels (latitude and longitude)')
 parser.add_argument('--len', default=6, type=int,
-                    metavar='LEN', help='the number of model input sequence length (containing the destination frame)')
+                    metavar='LEN', help='the number of model input sequence length (containing the end point frame)')
 parser.add_argument('--lr', default=0.001, type=float,
                     metavar='LR', help='initial (base) learning rate', dest='lr')
 parser.add_argument('--wd', default=0.1, type=float,
@@ -525,10 +525,10 @@ def accuracy(output, target, topk=(1,)):
 
 def angle_diff(output, target):
     """
-    compute angle difference between prediction and label.
+    compute Mean Absolute Angle Error(MAAE) between prediction and label.
     :param output: actual output of the model.
     :param target: ground truth label.
-    :return: average degree error within a batch (MAE).
+    :return: Mean Absolute Angle Error(MAAE) within a batch.
     """
     # b,2->b,1
     output_tan = output[:, 0] / output[:, 1]

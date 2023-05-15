@@ -1,5 +1,4 @@
 import os
-import math
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
@@ -8,9 +7,9 @@ from torch.utils.data import Dataset
 class OrderTrainDataset(Dataset):
     def __init__(self, dataset_path, transform, input_len):
         """
-        train dataset, form a sequence every five frames with a destination frame.
+        train dataset, form a sequence every five frames with an end point frame.
         :param transform: torchvision.transforms.
-        :param input_len: input sequence length (not containing destination).
+        :param input_len: input sequence length (not containing the end point).
         """
         self.transform = transform
         self.input_len = input_len
@@ -30,9 +29,9 @@ class OrderTrainDataset(Dataset):
                     line = line.split(' ')
 
                     # read frame, angle,
-                    # destination frame,
-                    # the current milestone label,
-                    # the next milestone label, the next steering angle
+                    # end point frame,
+                    # the current position label,
+                    # the next position label, the direction angle
                     line = [line[0], [float(line[1]), float(line[2])],
                             line[3],
                             int(line[4]),
@@ -63,7 +62,7 @@ class OrderTrainDataset(Dataset):
         read the image sequence, angle sequence and label corresponding to the index in the dataset.
         :param index: index of self.imgs.
         :return: frame sequence, angle sequence,
-                the current milestone, the next target milestone, the next steering angle.
+                the current position label, the next position label, the direction angle.
         """
         item = self.imgs[index]
 
@@ -86,7 +85,7 @@ class OrderTrainDataset(Dataset):
             else:
                 next_angles.append(item[i][1])
 
-        # append destination frame angle destination angle as part of model input
+        # append the end point frame as part of model input
         dest_img = Image.open(item[-1][2])
         dest_img = dest_img.convert('RGB')
         dest_img = self.transform(dest_img).unsqueeze(dim=0)
@@ -96,7 +95,7 @@ class OrderTrainDataset(Dataset):
         next_angles.append(dest_angle)
         next_angles = torch.tensor(next_angles, dtype=torch.float)
 
-        # the current milestone, the next target milestone, the next steering angle
+        # the current position label, the next position label, the direction angle
         label1 = item[-1][3]
         label2 = item[-1][4]
         label3 = torch.tensor(item[-1][5], dtype=torch.float)
@@ -107,16 +106,16 @@ class OrderTrainDataset(Dataset):
             next_angles = torch.cat((next_angles, torch.zeros((1, 2))), dim=0)
 
         # input: frame sequence (input_len + 1), angle sequence (input_len + 1),
-        # output: the current milestone, the next target milestone, the next steering angle.
+        # output: the current position label, the next position label, the direction angle
         return next_imgs, next_angles, label1, label2, label3
 
 
 class OrderTestDataset(Dataset):
     def __init__(self, dataset_path, transform, input_len):
         """
-        test dataset, form a sequence every five frames with a destination frame.
+        test dataset, form a sequence every five frames with an end point frame.
         :param transform: torchvision.transforms.
-        :param input_len: input sequence length (not containing destination).
+        :param input_len: input sequence length (not containing the end point).
         """
         self.transform = transform
         self.input_len = input_len
@@ -136,9 +135,9 @@ class OrderTestDataset(Dataset):
                     line = line.split(' ')
 
                     # read frame, angle,
-                    # destination frame,
-                    # the current milestone label,
-                    # the next milestone label, the next steering angle
+                    # end point frame,
+                    # the current position label,
+                    # the next position label, the direction angle.
                     line = [line[0], [float(line[1]), float(line[2])],
                             line[3],
                             int(line[4]),
@@ -169,7 +168,7 @@ class OrderTestDataset(Dataset):
         read the image sequence, angle sequence and label corresponding to the index in the dataset.
         :param index: index of self.imgs.
         :return: frame sequence, angle sequence,
-                the current milestone, the next target milestone, the next steering angle.
+                the current position label, the next position label, the direction angle.
         """
         item = self.imgs[index]
 
@@ -192,7 +191,7 @@ class OrderTestDataset(Dataset):
             else:
                 next_angles.append(item[i][1])
 
-        # append destination frame angle destination angle as part of model input
+        # append the end point frame as part of model input
         dest_img = Image.open(item[-1][2])
         dest_img = dest_img.convert('RGB')
         dest_img = self.transform(dest_img).unsqueeze(dim=0)
@@ -202,7 +201,7 @@ class OrderTestDataset(Dataset):
         next_angles.append(dest_angle)
         next_angles = torch.tensor(next_angles, dtype=torch.float)
 
-        # the current milestone, the next target milestone, the next steering angle
+        # the current position label, the next position label, the direction angle
         label1 = item[-1][3]
         label2 = item[-1][4]
         label3 = torch.tensor(item[-1][5], dtype=torch.float)
@@ -213,5 +212,5 @@ class OrderTestDataset(Dataset):
             next_angles = torch.cat((next_angles, torch.zeros((1, 2))), dim=0)
 
         # input: frame sequence (input_len + 1), angle sequence (input_len + 1),
-        # output: the current milestone, the next target milestone, the next steering angle.
+        # output: the current position label, the next position label, the direction angle.
         return next_imgs, next_angles, label1, label2, label3
