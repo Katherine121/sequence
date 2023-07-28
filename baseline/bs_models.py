@@ -20,8 +20,6 @@ class swint(nn.Module):
         in_features = self.backbone.head.in_features
         self.backbone.head = nn.Identity()
         self.head_label = nn.Linear(in_features, num_classes1)
-        self.head_target = nn.Linear(in_features, num_classes1)
-        self.head_angle = nn.Linear(in_features, num_classes2)
 
     def forward(self, x):
         """
@@ -30,7 +28,7 @@ class swint(nn.Module):
         :return: the current position, the next position, the direction angle.
         """
         x = self.backbone(x)
-        return self.head_label(x), self.head_target(x), self.head_angle(x)
+        return self.head_label(x)
 
 
 class vit(nn.Module):
@@ -42,7 +40,7 @@ class vit(nn.Module):
         """
         super(vit, self).__init__()
         self.backbone = timm.models.vit_small_patch16_224(pretrained=True)
-        in_features = 768
+        in_features = 384
         self.backbone.head = nn.Identity()
         self.head_label = nn.Linear(in_features, num_classes1)
 
@@ -91,8 +89,6 @@ class efficientb3(nn.Module):
         in_features = 1536
         self.backbone.classifier = nn.Identity()
         self.head_label = nn.Linear(in_features, num_classes1)
-        self.head_target = nn.Linear(in_features, num_classes1)
-        self.head_angle = nn.Linear(in_features, num_classes2)
 
     def forward(self, x):
         """
@@ -101,7 +97,7 @@ class efficientb3(nn.Module):
         :return: the current position, the next position, the direction angle.
         """
         x = self.backbone(x)
-        return self.head_label(x), self.head_target(x), self.head_angle(x)
+        return self.head_label(x)
 
 
 class Dronet(nn.Module):
@@ -146,8 +142,6 @@ class Dronet(nn.Module):
         self.dropout1 = nn.Dropout()
 
         self.head_label = nn.Linear(6272, num_classes1)
-        self.head_target = nn.Linear(6272, num_classes1)
-        self.head_angle = nn.Linear(6272, num_classes2)
         self.sigmoid1 = nn.Sigmoid()
         self.init_weights()
         self.decay = 0.1
@@ -200,12 +194,7 @@ class Dronet(nn.Module):
         id = self.head_label(x5)
         id = self.sigmoid1(id)
 
-        target = self.head_target(x5)
-        target = self.sigmoid1(target)
-
-        ang = self.head_angle(x5)
-
-        return id, target, ang
+        return id
 
 
 class shufflenet_v2(nn.Module):
@@ -220,8 +209,6 @@ class shufflenet_v2(nn.Module):
         in_features = self.backbone.fc.in_features
         self.backbone.fc = nn.Identity()
         self.head_label = nn.Linear(in_features, num_classes1)
-        self.head_target = nn.Linear(in_features, num_classes1)
-        self.head_angle = nn.Linear(in_features, num_classes2)
 
     def forward(self, x):
         """
@@ -230,7 +217,7 @@ class shufflenet_v2(nn.Module):
         :return: the current position, the next position, the direction angle.
         """
         x = self.backbone(x)
-        return self.head_label(x), self.head_target(x), self.head_angle(x)
+        return self.head_label(x)
 
 
 class mobilenet_v3(nn.Module):
@@ -245,8 +232,6 @@ class mobilenet_v3(nn.Module):
         in_features = 576
         self.backbone.classifier = nn.Identity()
         self.head_label = nn.Linear(in_features, num_classes1)
-        self.head_target = nn.Linear(in_features, num_classes1)
-        self.head_angle = nn.Linear(in_features, num_classes2)
 
     def forward(self, x):
         """
@@ -255,7 +240,7 @@ class mobilenet_v3(nn.Module):
         :return: the current position, the next position, the direction angle.
         """
         x = self.backbone(x)
-        return self.head_label(x), self.head_target(x), self.head_angle(x)
+        return self.head_label(x)
 
 
 class Extractor(nn.Module):

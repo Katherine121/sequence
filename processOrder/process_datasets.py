@@ -5,7 +5,7 @@ import shutil
 import numpy as np
 import os
 from PIL import ImageFile, Image
-
+import imgaug.augmenters as iaa
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
@@ -35,6 +35,51 @@ def deleteNone(path):
             #     continue
             pics_list.append(full_file_path)
         print(len(pics_list))
+
+
+def add_aug_taiwan(dataset_path="order"):
+    image_augments = [iaa.Rain(), iaa.Snowflakes(), iaa.Fog(),
+                      iaa.imgcorruptlike.Brightness(), iaa.Cutout()]
+
+    dir_path = os.listdir(dataset_path)
+    dir_path.sort()
+    print(len(dir_path))
+
+    noise = 0
+    index = 97000
+    for dir in dir_path:
+        print(dir)
+        if noise % 5 == 0:
+            random.shuffle(image_augments)
+
+        full_dir_path = os.path.join(dataset_path, dir)
+        new_full_dir_path = os.path.join(dataset_path, str(index))
+        if os.path.exists(new_full_dir_path) is False:
+            os.mkdir(new_full_dir_path)
+
+        pic_list = os.listdir(full_dir_path)
+        pic_list.sort()
+
+        for pic in pic_list:
+            full_pic_path = os.path.join(full_dir_path, pic)
+            a = int(pic[0])
+            a += 1
+            new_pic = str(a) + pic[1:]
+            new_full_pic_path = os.path.join(new_full_dir_path, new_pic)
+
+            if os.path.exists(new_full_pic_path):
+                continue
+
+            pic = Image.open(full_pic_path)
+            pic = pic.convert('RGB')
+
+            pic = np.array(pic)
+            image_augment = image_augments[noise % 5]
+            pic = image_augment(image=pic)
+            pic = Image.fromarray(pic)
+            pic.save(new_full_pic_path)
+        noise += 1
+        index += 1
 
 
 def get_pics(path):
@@ -371,14 +416,6 @@ def prepare_dataset(path1, k):
         for file1 in file_path1:
             full_file_path1 = os.path.join(full_dir_path1, file1)
 
-            # # **************************************************
-            # if i % 2 != 0:
-            #     # the reversed path requires every frame a 180° clockwise rotation
-            #     pic = Image.open(full_file_path1)
-            #     pic = pic.rotate(angle=180)
-            #     pic.save(full_file_path1)
-            # # **************************************************
-
             # latitude
             lat_index = file1.find("lat")
             # altitude
@@ -399,9 +436,6 @@ def prepare_dataset(path1, k):
                     path.append((full_file_path1, j, eval(lat_pos), eval(lon_pos)))
                     break
 
-        # we use both forward and reverse paths
-        if i % 2 != 0:
-            path.reverse()
         res.append(path)
 
     # calculate frame, angle, end point frame,
@@ -477,7 +511,8 @@ if __name__ == "__main__":
     # # 2. delete excess images at the beginning and end manually
     # # 3. delete the extra images 75986:15, 83832:3, 97128: all
     # # we can find the dataset in this step in the USB drive
-    #
+    # # add weather noise into the dataset
+    # add_aug_taiwan()
     # 4. cluster images in the dataset to different positions
     images_clustering(path="order", k=100, epoch=400)
     # 5. copy cluster results(images) to corresponding k directories

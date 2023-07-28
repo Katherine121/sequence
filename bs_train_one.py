@@ -32,7 +32,7 @@ parser.add_argument('--epochs', default=120, type=int,
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
-parser.add_argument('--save-dir', default='baseline/resnet_save', type=str,
+parser.add_argument('--save-dir', default='baseline/vit_save', type=str,
                     metavar='PATH', help='model saved path')
 parser.add_argument('--dataset-path', default='processOrder/datasets', type=str,
                     metavar='PATH', help='dataset path')
@@ -156,8 +156,8 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     print("=> creating model")
     # model = swint(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    # model = vit(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    model = resnet18(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    model = vit(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    # model = resnet18(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
     # model = efficientb3(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
     # model = Dronet(img_channels=3, num_classes1=args.num_classes1, num_classes2=args.num_classes2)
     # model = shufflenet_v2(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
@@ -251,8 +251,8 @@ def main_worker(gpu, ngpus_per_node, args):
             model.load_state_dict(checkpoint['state_dict'], strict=False)
             criterion.load_state_dict(checkpoint['loss_weight'], strict=False)
             print(criterion.params)
-            # optimizer.load_state_dict(checkpoint['optimizer'])
-            # lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
         else:
@@ -270,13 +270,6 @@ def main_worker(gpu, ngpus_per_node, args):
         transforms.ToTensor(),
         normalize,
     ])
-    # data augment strategy
-    train_transform_aug = transforms.Compose([
-        transforms.RandomResizedCrop((224, 224)),
-        AutoAugment(),
-        transforms.ToTensor(),
-        normalize,
-    ])
     val_transform = transforms.Compose([
         transforms.Resize(256),
         transforms.CenterCrop((224, 224)),
@@ -284,8 +277,7 @@ def main_worker(gpu, ngpus_per_node, args):
         normalize,
     ])
     # load dataset
-    train_dataset = DronetTrainDataset(dataset_path=args.dataset_path, transform=train_transform, input_len=args.len - 1) + \
-                    DronetTrainDataset(dataset_path=args.dataset_path, transform=train_transform_aug, input_len=args.len - 1)
+    train_dataset = DronetTrainDataset(dataset_path=args.dataset_path, transform=train_transform, input_len=args.len - 1)
     test_dataset = DronetTestDataset(dataset_path=args.dataset_path, transform=val_transform, input_len=args.len - 1)
 
     if args.distributed:
