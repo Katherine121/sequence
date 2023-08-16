@@ -5,19 +5,19 @@ from einops import rearrange
 
 def get_pad_mask(seq, pad_idx):
     """
-    get the padding mask for indicating valid frames in the input sequence.
-    :param seq: shape of (b, len).
-    :param pad_idx: 0.
-    :return: shape of (b, 1, len), if not equals to 0, set to 1, if equals to 0, set to 0.
+    get the padding mask for indicating valid frames in the input sequence
+    :param seq: shape of (b, len)
+    :param pad_idx: 0
+    :return: shape of (b, 1, len), if not equals to 0, set to 1, if equals to 0, set to 0
     """
     return (seq != pad_idx).unsqueeze(-2)
 
 
 def get_subsequent_mask(seq):
     """
-    get the subsequent mask for masking the future frames.
-    :param seq: shape of (b, len).
-    :return: lower triangle shape of (b, len, len).
+    get the subsequent mask for masking the future frames
+    :param seq: shape of (b, len)
+    :return: lower triangle shape of (b, len, len)
     """
     b, s = seq.size()
     subsequent_mask = (1 - torch.triu(
@@ -28,8 +28,8 @@ def get_subsequent_mask(seq):
 class SequenceFeatureEncoder(nn.Module):
     def __init__(self, backbone):
         """
-        Sequence Feature Encoder.
-        :param backbone: backbone of Sequence Feature Encoder (MobileNetV3 small).
+        Sequence Feature Encoder
+        :param backbone: backbone of Sequence Feature Encoder (MobileNetV3 small)
         """
         super(SequenceFeatureEncoder, self).__init__()
         self.backbone = backbone
@@ -37,9 +37,9 @@ class SequenceFeatureEncoder(nn.Module):
 
     def forward(self, x):
         """
-        forward pass of Sequence Feature Encoder.
-        :param x: the provided input tensor.
-        :return: the visual semantic features of an image.
+        forward pass of Sequence Feature Encoder
+        :param x: the provided input tensor
+        :return: the visual semantic features of input
         """
         x = self.backbone(x)
         return x
@@ -48,9 +48,9 @@ class SequenceFeatureEncoder(nn.Module):
 class PreNorm(nn.Module):
     def __init__(self, dim, fn):
         """
-        pre normalization.
-        :param dim: input dimension of the last axis.
-        :param fn: next module.
+        pre normalization
+        :param dim: input dimension of the last axis
+        :param fn: next module
         """
         super().__init__()
         self.norm = nn.LayerNorm(dim)
@@ -58,9 +58,9 @@ class PreNorm(nn.Module):
 
     def forward(self, x, mask, **kwargs):
         """
-        forward pass of PreNorm.
-        :param x: the provided input tensor.
-        :return: the visual semantic features of input.
+        forward pass of PreNorm
+        :param x: the provided input tensor
+        :return: the visual semantic features of input
         """
         return self.fn(self.norm(x), mask, **kwargs)
 
@@ -84,9 +84,9 @@ class FeedForward(nn.Module):
 
     def forward(self, x, mask):
         """
-        forward pass of FeedForward.
-        :param x: the provided input tensor.
-        :return: the visual semantic features of input.
+        forward pass of FeedForward
+        :param x: the provided input tensor
+        :return: the visual semantic features of input
         """
         return self.net(x)
 
@@ -119,10 +119,10 @@ class Attention(nn.Module):
 
     def forward(self, x, mask):
         """
-        forward pass of Attention.
-        :param x: the provided input tensor.
-        :param mask: padding and subsequent mask.
-        :return: the visual semantic features of input.
+        forward pass of Attention
+        :param x: the provided input tensor
+        :param mask: padding and subsequent mask
+        :return: the visual semantic features of input
         """
         qkv = self.to_qkv(x).chunk(3, dim=-1)
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.heads), qkv)
@@ -163,10 +163,10 @@ class CrossAttentionMixer(nn.Module):
 
     def forward(self, x, mask):
         """
-        forward pass of Cross Attention Mixer.
-        :param x: the provided input tensor.
-        :param mask: padding and subsequent mask.
-        :return: the visual semantic features of input.
+        forward pass of Cross Attention Mixer
+        :param x: the provided input tensor
+        :param mask: padding and subsequent mask
+        :return: the visual semantic features of input
         """
         for attn, ff in self.layers:
             x = attn(x, mask) + x
@@ -181,18 +181,18 @@ class ARTransformer(nn.Module):
                  dropout=0., emb_dropout=0.):
         """
         ARTransformer
-        :param backbone: backbone of Sequence Feature Encoder (MobileNetV3 small).
-        :param extractor_dim: output dimension of Sequence Feature Encoder.
-        :param num_classes1: output dimension of ARTransformer.
-        :param num_classes2: output dimension of ARTransformer.
-        :param len: input sequence length of ARTransformer.
-        :param dim: input dimension of Cross Attention Mixer.
-        :param depth: depth of Cross Attention Mixer.
-        :param heads: the number of heads in Masked MSA.
-        :param dim_head: dimension of one head.
-        :param mlp_dim: hidden dimension in FeedForward.
-        :param dropout: dropout rate.
-        :param emb_dropout: dropout rate after position embedding.
+        :param backbone: backbone of Sequence Feature Encoder (MobileNetV3 small)
+        :param extractor_dim: output dimension of Sequence Feature Encoder
+        :param num_classes1: output dimension of ARTransformer
+        :param num_classes2: output dimension of ARTransformer
+        :param len: input sequence length of ARTransformer
+        :param dim: input dimension of Cross Attention Mixer
+        :param depth: depth of Cross Attention Mixer
+        :param heads: the number of heads in Multi-Head Self Attention layer
+        :param dim_head: dimension of one head
+        :param mlp_dim: hidden dimension in FeedForward layer
+        :param dropout: dropout rate
+        :param emb_dropout: dropout rate after position embedding
         """
         super().__init__()
         self.extractor = SequenceFeatureEncoder(backbone)
@@ -228,10 +228,10 @@ class ARTransformer(nn.Module):
 
     def forward(self, img, ang):
         """
-        forward pass of ARTransformer.
-        :param img: input frame sequence.
-        :param ang: input angle sequence.
-        :return: the current position preds, the next position preds, the direction angle preds.
+        forward pass of ARTransformer
+        :param img: input frame sequence
+        :param ang: input angle sequence
+        :return: the current position preds, the next position preds, the direction angle preds
         """
         # b,1,len
         src_mask1 = get_pad_mask(img[:, :, 0, 0, 0].view(-1, self.len), pad_idx=0)

@@ -4,147 +4,119 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 
-class DronetTrainDataset(Dataset):
-    def __init__(self, dataset_path, transform, input_len):
+class BSTrainDataset(Dataset):
+    def __init__(self, dataset_path, class_path, transform):
         """
-        baseline train dataset.
-        :param transform: torchvision.transforms.
-        :param input_len: input sequence length of the model.
+        :param dataset_path: UAV_AR368 path
+        :param class_path: clustered UAV_AR368 path
+        :param transform: torchvision.transforms
         """
         self.transform = transform
-        self.input_len = input_len
+        self.data = []
+        self.target = []
 
-        res_seq = []
-        files = os.listdir(dataset_path)
-        files.sort()
-        for i in range(0, len(files)):
-            # 0.8 as train dataset
+        dir_path1 = os.listdir(dataset_path)
+        dir_path1.sort()
+
+        class_path1 = os.listdir(class_path)
+        class_path1.sort()
+
+        for i in range(0, len(dir_path1)):
             if i % 5 != 0:
-                path_seq = []
-                file = files[i]
-                full_file_path = os.path.join(dataset_path, file)
-                f = open(full_file_path, 'rt')
+                dir1 = dir_path1[i]
+                full_dir_path = os.path.join(dataset_path, dir1)
+
+                file_path1 = os.listdir(full_dir_path)
+                file_path1.sort()
+
+                f = open(class_path + "/" + class_path1[i])
+                cluster_labels = []
                 for line in f:
                     line = line.strip('\n')
-                    line = line.split(' ')
+                    cluster_labels.append(int(line))
 
-                    # read frame, angle,
-                    # end point frame,
-                    # the current position label,
-                    # the next position label, the direction angle
-                    line = [line[0], [float(line[1]), float(line[2])],
-                            line[3],
-                            int(line[4]),
-                            int(line[5]), [float(line[6]), float(line[7])]
-                            ]
-                    path_seq.append(line)
+                for j in range(0, len(file_path1)):
+                    file1 = file_path1[j]
+                    full_file_path = os.path.join(full_dir_path, file1)
+                    self.data.append(full_file_path)
+                    self.target.append(cluster_labels[j])
 
-                # if there are not enough input frames
-                for j in range(1, len(path_seq) + 1):
-                    if j - self.input_len < 0:
-                        res_seq.append(path_seq[0: j])
-                    else:
-                        res_seq.append(path_seq[j - self.input_len: j])
-
-        print(len(res_seq))
-        self.imgs = res_seq
+        print(len(self.data))
+        self.imgs = self.data
 
     def __len__(self):
         """
-        return the length of the dataset.
+        return the length of the dataset
         :return:
         """
         return len(self.imgs)
 
     def __getitem__(self, index):
         """
-        read the image and label corresponding to the index in the dataset.
-        :param index: index of self.imgs.
-        :return: image, the current position, the next position, the direction angle.
+        read the image
+        :param index: index of self.imgs
+        :return: input tensor and label
         """
-        item = self.imgs[index]
-
-        img = item[-1][0]
-        img = Image.open(img)
+        img = Image.open(self.imgs[index])
         img = img.convert('RGB')
         img = self.transform(img)
-
-        label = item[-1][3]
-        stone_img = item[-1][4]
-        stone_angle = torch.tensor(item[-1][5], dtype=torch.float)
-
-        # image, the current position, the next position, the direction angle
-        return img, label, stone_img, stone_angle
+        return img, torch.tensor(self.target[index], dtype=torch.int64)
 
 
-class DronetTestDataset(Dataset):
-    def __init__(self, dataset_path, transform, input_len):
+class BSTestDataset(Dataset):
+    def __init__(self, dataset_path, class_path, transform):
         """
-        baseline test dataset.
-        :param transform: torchvision.transforms.
-        :param input_len: input sequence length of the model.
+        :param dataset_path: UAV_AR368 path
+        :param class_path: clustered UAV_AR368 path
+        :param transform: torchvision.transforms
         """
         self.transform = transform
-        self.input_len = input_len
+        self.data = []
+        self.target = []
 
-        res_seq = []
-        files = os.listdir(dataset_path)
-        files.sort()
-        for i in range(0, len(files)):
-            # 0.2 as test dataset
+        dir_path1 = os.listdir(dataset_path)
+        dir_path1.sort()
+
+        class_path1 = os.listdir(class_path)
+        class_path1.sort()
+
+        for i in range(0, len(dir_path1)):
             if i % 5 == 0:
-                path_seq = []
-                file = files[i]
-                full_file_path = os.path.join(dataset_path, file)
-                f = open(full_file_path, 'rt')
+                dir1 = dir_path1[i]
+                full_dir_path = os.path.join(dataset_path, dir1)
+
+                file_path1 = os.listdir(full_dir_path)
+                file_path1.sort()
+
+                f = open(class_path + "/" + class_path1[i])
+                cluster_labels = []
                 for line in f:
                     line = line.strip('\n')
-                    line = line.split(' ')
+                    cluster_labels.append(int(line))
 
-                    # read frame, angle,
-                    # end point frame,
-                    # the current position label,
-                    # the next position label, the direction angle
-                    line = [line[0], [float(line[1]), float(line[2])],
-                            line[3],
-                            int(line[4]),
-                            int(line[5]), [float(line[6]), float(line[7])]
-                            ]
-                    path_seq.append(line)
+                for j in range(0, len(file_path1)):
+                    file1 = file_path1[j]
+                    full_file_path = os.path.join(full_dir_path, file1)
+                    self.data.append(full_file_path)
+                    self.target.append(cluster_labels[j])
 
-                # if there are not enough input frames
-                for j in range(1, len(path_seq) + 1):
-                    if j - self.input_len < 0:
-                        res_seq.append(path_seq[0: j])
-                    else:
-                        res_seq.append(path_seq[j - self.input_len: j])
-
-        print(len(res_seq))
-        self.imgs = res_seq
+        print(len(self.data))
+        self.imgs = self.data
 
     def __len__(self):
         """
-        return the length of the dataset.
+        return the length of the dataset
         :return:
         """
         return len(self.imgs)
 
     def __getitem__(self, index):
         """
-        read the image and label corresponding to the index in the dataset.
-        :param index: index of self.imgs.
-        :return: image, the current position, the next position, the direction angle.
+        read the image
+        :param index: index of self.imgs
+        :return: input tensor and label
         """
-        item = self.imgs[index]
-
-        img = item[-1][0]
-        img = Image.open(img)
+        img = Image.open(self.imgs[index])
         img = img.convert('RGB')
         img = self.transform(img)
-
-        label = item[-1][3]
-        stone_img = item[-1][4]
-        stone_angle = torch.tensor(item[-1][5], dtype=torch.float)
-
-        # image, the current position, the next position, the direction angle
-        return img, label, stone_img, stone_angle
+        return img, torch.tensor(self.target[index], dtype=torch.int64)

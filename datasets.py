@@ -7,9 +7,9 @@ from torch.utils.data import Dataset
 class OrderTrainDataset(Dataset):
     def __init__(self, dataset_path, transform, input_len):
         """
-        train dataset, form a sequence every five frames with an end point frame.
-        :param transform: torchvision.transforms.
-        :param input_len: input sequence length (not containing the end point).
+        train dataset, form a sequence every five frames with an end point frame
+        :param transform: torchvision.transforms
+        :param input_len: input sequence length (not containing the end point)
         """
         self.transform = transform
         self.input_len = input_len
@@ -28,10 +28,8 @@ class OrderTrainDataset(Dataset):
                     line = line.strip('\n')
                     line = line.split(' ')
 
-                    # read frame, angle,
-                    # end point frame,
-                    # the current position label,
-                    # the next position label, the direction angle
+                    # read frame, angle, end point frame,
+                    # the current position label, the next position label, the direction angle
                     line = [line[0], [float(line[1]), float(line[2])],
                             line[3],
                             int(line[4]),
@@ -52,17 +50,17 @@ class OrderTrainDataset(Dataset):
 
     def __len__(self):
         """
-        return the length of the dataset.
+        return the length of the dataset
         :return:
         """
         return len(self.imgs)
 
     def __getitem__(self, index):
         """
-        read the image sequence, angle sequence and label corresponding to the index in the dataset.
-        :param index: index of self.imgs.
+        read the image sequence, angle sequence and label corresponding to the index in the dataset
+        :param index: index of self.imgs
         :return: frame sequence, angle sequence,
-                the current position label, the next position label, the direction angle.
+                the current position label, the next position label, the direction angle
         """
         item = self.imgs[index]
 
@@ -113,9 +111,9 @@ class OrderTrainDataset(Dataset):
 class OrderTestDataset(Dataset):
     def __init__(self, dataset_path, transform, input_len):
         """
-        test dataset, form a sequence every five frames with an end point frame.
-        :param transform: torchvision.transforms.
-        :param input_len: input sequence length (not containing the end point).
+        test dataset, form a sequence every five frames with an end point frame
+        :param transform: torchvision.transforms
+        :param input_len: input sequence length (not containing the end point)
         """
         self.transform = transform
         self.input_len = input_len
@@ -134,10 +132,8 @@ class OrderTestDataset(Dataset):
                     line = line.strip('\n')
                     line = line.split(' ')
 
-                    # read frame, angle,
-                    # end point frame,
-                    # the current position label,
-                    # the next position label, the direction angle.
+                    # read frame, angle, end point frame,
+                    # the current position label, the next position label, the direction angle
                     line = [line[0], [float(line[1]), float(line[2])],
                             line[3],
                             int(line[4]),
@@ -158,17 +154,17 @@ class OrderTestDataset(Dataset):
 
     def __len__(self):
         """
-        return the length of the dataset.
+        return the length of the dataset
         :return:
         """
         return len(self.imgs)
 
     def __getitem__(self, index):
         """
-        read the image sequence, angle sequence and label corresponding to the index in the dataset.
-        :param index: index of self.imgs.
+        read the image sequence, angle sequence and label corresponding to the index in the dataset
+        :param index: index of self.imgs
         :return: frame sequence, angle sequence,
-                the current position label, the next position label, the direction angle.
+                the current position label, the next position label, the direction angle
         """
         item = self.imgs[index]
 

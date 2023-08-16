@@ -12,15 +12,15 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
+from torch import nn
+import torch.multiprocessing as mp
 import torchvision.transforms as transforms
 import torchvision.models as torchvision_models
+from torchvision.models import MobileNet_V3_Small_Weights, ShuffleNet_V2_X0_5_Weights
 from thop import profile
-from torch import nn
-from torchvision.models import ShuffleNet_V2_X1_0_Weights, MobileNet_V3_Small_Weights
-from torchvision.transforms import AutoAugment
-import torch.multiprocessing as mp
-from model import ARTransformer
+
 from datasets import OrderTrainDataset, OrderTestDataset
+from model import ARTransformer
 from utils import UncertaintyLoss
 
 torch.set_printoptions(precision=8)
@@ -88,7 +88,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 
 def main():
     """
-    main program entry, responsible for multiprocessing distributed.
+    main program entry, responsible for multiprocessing distributed
     :return:
     """
     args = parser.parse_args()
@@ -126,10 +126,10 @@ def main():
 
 def main_worker(gpu, ngpus_per_node, args):
     """
-    multiprocessing distributed process control: loading model, dataset, training and testing, saving checkpoint.
-    :param gpu: current gpu.
-    :param ngpus_per_node: the number of gpus of one machine.
-    :param args: program parameters.
+    multiprocessing distributed process control: loading model, dataset, training and testing, saving checkpoint
+    :param gpu: current gpu
+    :param ngpus_per_node: the number of gpus of one machine
+    :param args: program parameters
     :return:
     """
     args.gpu = gpu
@@ -157,7 +157,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # create model
     print("=> creating model")
-    # backbone = torchvision_models.shufflenet_v2_x1_0(weights=(ShuffleNet_V2_X1_0_Weights.IMAGENET1K_V1))
+    # backbone = torchvision_models.shufflenet_v2_x0_5(weights=(ShuffleNet_V2_X0_5_Weights.IMAGENET1K_V1))
     backbone = torchvision_models.mobilenet_v3_small(weights=(MobileNet_V3_Small_Weights.IMAGENET1K_V1))
 
     model = ARTransformer(
@@ -167,16 +167,16 @@ def main_worker(gpu, ngpus_per_node, args):
         num_classes2=args.num_classes2,
         len=args.len,
         dim=512,
-        depth=6,
+        depth=4,
         heads=8,
         dim_head=64,
         mlp_dim=1024,
         dropout=0.1,
         emb_dropout=0.1
     )
+    print(model)
 
-    # shufflenetv2+vit: flops: 991.25 M, params: 15.41 M
-    # ours(mobilenetv3+vit): flops: 444.95 M, params: 14.86 M
+    # ours(mobilenetv3+vit): flops: 419.7 M, params: 10.7 M
     flops, params = profile(model,
                             (torch.randn((1, args.len, 3, 224, 224)),
                              torch.randn((1, args.len, 2))))
@@ -202,7 +202,7 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
         # should always set the single device scope, otherwise,
-        # DistributedDataParallel will use all available devices.
+        # DistributedDataParallel will use all available devices
         if args.gpu is not None:
             torch.cuda.set_device(args.gpu)
             model.cuda(args.gpu)
@@ -363,17 +363,17 @@ def main_worker(gpu, ngpus_per_node, args):
 
 def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_scheduler, epoch, args):
     """
-    training process for one epoch.
-    :param train_loader: train dataloader.
-    :param model: model (mobilenetv3+vit / shufflenetv2+vit).
-    :param criterion1: ce.
-    :param criterion2: mse.
-    :param criterion: uncertainty loss.
-    :param optimizer: adamw.
-    :param lr_scheduler: CosineAnnealingWarmRestarts.
-    :param epoch: 120.
+    training process for one epoch
+    :param train_loader: train dataloader
+    :param model: model (mobilenetv3+vit / shufflenetv2+vit)
+    :param criterion1: ce
+    :param criterion2: mse
+    :param criterion: uncertainty loss
+    :param optimizer: adamw
+    :param lr_scheduler: CosineAnnealingWarmRestarts
+    :param epoch: 120
     :param args:
-    :return: total loss and three head losses.
+    :return: total loss and three task losses
     """
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -448,11 +448,11 @@ def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_
 
 def validate(val_loader, model, args):
     """
-    validating process for one epoch.
-    :param val_loader: test dataloader.
-    :param model: model (mobilenetv3+vit / shufflenetv2+vit).
+    validating process for one epoch
+    :param val_loader: test dataloader
+    :param model: model (mobilenetv3+vit / shufflenetv2+vit)
     :param args:
-    :return: three head accuracies.
+    :return: three task accuracies
     """
     total_correct_label = 0
     total_correct_target = 0
@@ -506,11 +506,11 @@ def validate(val_loader, model, args):
 
 def accuracy(output, target, topk=(1,)):
     """
-    computes the accuracy over the k top predictions for the specified values of k.
-    :param output: actual output of the model.
-    :param target: ground truth label.
+    computes the accuracy over the k top predictions for the specified values of k
+    :param output: actual output of the model
+    :param target: ground truth label
     :param topk:
-    :return: top-k acc.
+    :return: top-k acc
     """
     with torch.no_grad():
         maxk = max(topk)
@@ -529,10 +529,10 @@ def accuracy(output, target, topk=(1,)):
 
 def angle_diff(output, target):
     """
-    compute Mean Absolute Angle Error(MAAE) between prediction and label.
-    :param output: actual output of the model.
-    :param target: ground truth label.
-    :return: Mean Absolute Angle Error(MAAE) within a batch.
+    compute Mean Absolute Angle Error between prediction and label
+    :param output: actual output of the model
+    :param target: ground truth label
+    :return: Mean Absolute Angle Error within a batch
     """
     # b,2->b,1
     output_tan = output[:, 0] / output[:, 1]
@@ -574,8 +574,8 @@ def angle_diff(output, target):
 
 def save_checkpoint(state, label_is_best, target_is_best, angle_avg_is_best, args):
     """
-    save checkpoint.
-    :param state: model parameters.
+    save checkpoint
+    :param state: model parameters
     :param label_is_best:
     :param target_is_best:
     :param angle_avg_is_best:

@@ -11,8 +11,8 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 def deleteNone(path):
     """
-    delete images int the dataset whose name contains "None".
-    :param path: dataset path.
+    delete images int the dataset whose name contains "None"
+    :param path: dataset path
     :return:
     """
     dir_path = os.listdir(path)
@@ -37,7 +37,8 @@ def deleteNone(path):
         print(len(pics_list))
 
 
-def add_aug_taiwan(dataset_path="order"):
+def add_aug_order(dataset_path):
+    # five kinds of disturbances
     image_augments = [iaa.Rain(), iaa.Snowflakes(), iaa.Fog(),
                       iaa.imgcorruptlike.Brightness(), iaa.Cutout()]
 
@@ -49,6 +50,7 @@ def add_aug_taiwan(dataset_path="order"):
     index = 97000
     for dir in dir_path:
         print(dir)
+        # shuffle disturbances
         if noise % 5 == 0:
             random.shuffle(image_augments)
 
@@ -73,6 +75,7 @@ def add_aug_taiwan(dataset_path="order"):
             pic = Image.open(full_pic_path)
             pic = pic.convert('RGB')
 
+            # process image by imgaug
             pic = np.array(pic)
             image_augment = image_augments[noise % 5]
             pic = image_augment(image=pic)
@@ -84,8 +87,8 @@ def add_aug_taiwan(dataset_path="order"):
 
 def get_pics(path):
     """
-    get images and lat/lon labels from the dataset.
-    :param path: dataset path.
+    get images and lat/lon labels from the dataset
+    :param path: dataset path
     :return: image list, label list
     """
     pics_list = []
@@ -125,21 +128,21 @@ def get_pics(path):
 
 def euclidean_distance(pos1, pos2):
     """
-    calculate Euclidean distance between two positions.
-    :param pos1: the first position.
-    :param pos2: the second position.
-    :return: the distance.
+    calculate Euclidean distance between two positions
+    :param pos1: the first position
+    :param pos2: the second position
+    :return: the Euclidean distance
     """
     return math.sqrt(((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2))
 
 
 def images_clustering(path, k, epoch):
     """
-    cluster images in the dataset to different positions.
-    :param path: dataset path.
-    :param k: the number of clusters(positions).
-    :param epoch: the number of cluster epochs.
-    :return: cluster center and cluster results.
+    cluster images in the dataset to different positions
+    :param path: dataset path
+    :param k: the number of clusters(positions)
+    :param epoch: the number of cluster epochs
+    :return: cluster center and cluster results
     """
     # get images and lat/lon labels from the dataset
     pics_list, labels = get_pics(path)
@@ -238,8 +241,8 @@ def images_clustering(path, k, epoch):
 
 def copy_clusters(k):
     """
-    copy cluster results(images) to corresponding k directories.
-    :param k: the number of clusters(positions).
+    copy cluster results(images) to corresponding k directories
+    :param k: the number of clusters(positions)
     :return:
     """
     i = 0
@@ -265,8 +268,8 @@ def copy_clusters(k):
 
 def get_cluster_labels(path1, k):
     """
-    get the cluster(position) labels in routes.
-    :param k: the number of clusters(positions).
+    get the cluster(position) labels in routes
+    :param k: the number of clusters(positions)
     :return:
     """
     path2 = str(k) + "/all_class"
@@ -307,8 +310,8 @@ def get_cluster_labels(path1, k):
 
 def replace_pics(k):
     """
-    replace the images blank and non-readable with images in the same cluster.
-    :param k: the number of clusters(positions).
+    replace the images blank and non-readable with images in the same cluster
+    :param k: the number of clusters(positions)
     :return:
     """
     res = []
@@ -350,8 +353,8 @@ def replace_pics(k):
 
 def copy_replaced_pics(path1, k):
     """
-    replace the images blank and non-readable in the origin dataset with images in the corresponding cluster.
-    :param k: the number of clusters(positions).
+    replace the images blank and non-readable in the origin dataset with images in the corresponding cluster
+    :param k: the number of clusters(positions)
     :return:
     """
     res = []
@@ -393,8 +396,8 @@ def copy_replaced_pics(path1, k):
 
 def prepare_dataset(path1, k):
     """
-    prepare for dataset.
-    :param k: the number of clusters(positions).
+    prepare for dataset
+    :param k: the number of clusters(positions)
     :return:
     """
     path2 = str(k) + "/all_class"
@@ -512,7 +515,7 @@ if __name__ == "__main__":
     # # 3. delete the extra images 75986:15, 83832:3, 97128: all
     # # we can find the dataset in this step in the USB drive
     # # add weather noise into the dataset
-    # add_aug_taiwan()
+    # add_aug_order()
     # 4. cluster images in the dataset to different positions
     images_clustering(path="order", k=100, epoch=400)
     # 5. copy cluster results(images) to corresponding k directories
@@ -520,7 +523,7 @@ if __name__ == "__main__":
     # 6. get the position labels in routes
     get_cluster_labels(path1="order", k=100)
 
-    # # 7. replace the images blank and non-readable with images in the same cluster.
+    # # 7. replace the images blank and non-readable with images in the same cluster
     # # 8. replace the images blank and non-readable in the origin dataset with images in the corresponding cluster
     # replace_pics(k=100)
     # copy_replaced_pics(path1="order", k=100)

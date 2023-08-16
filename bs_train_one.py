@@ -1,24 +1,22 @@
 import argparse
 import math
-import os
 import random
 import shutil
 import time
 import warnings
 import builtins
 import torch.distributed as dist
-import torch
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
+from torch import nn
+import torch.multiprocessing as mp
 import torchvision.transforms as transforms
 from thop import profile
-from torch import nn
-from torchvision.transforms import AutoAugment
-import torch.multiprocessing as mp
-from baseline.bs_models import swint, vit, resnet18, efficientb3, Dronet, shufflenet_v2, mobilenet_v3
-from baseline.bs_datasets import DronetTrainDataset, DronetTestDataset
+
+from baseline.bs_datasets import *
+from baseline.bs_models import mobilenet_v3, resnet18, vit, swint
 from utils import UncertaintyLoss
 
 torch.set_printoptions(precision=8)
@@ -32,9 +30,11 @@ parser.add_argument('--epochs', default=120, type=int,
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='FREQ', help='print frequency (default: 10)')
 
-parser.add_argument('--save-dir', default='baseline/vit_save', type=str,
+parser.add_argument('--save-dir', default='baseline/mobilenet_save', type=str,
                     metavar='PATH', help='model saved path')
-parser.add_argument('--dataset-path', default='processOrder/datasets', type=str,
+parser.add_argument('--dataset-path', default='processOrder/order', type=str,
+                    metavar='PATH', help='dataset path')
+parser.add_argument('--class-path', default='processOrder/100/cluster_labels', type=str,
                     metavar='PATH', help='dataset path')
 parser.add_argument('-b', '--batch-size', default=128, type=int,
                     metavar='BS',
@@ -86,7 +86,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 
 def main():
     """
-    main program entry, responsible for multiprocessing distributed.
+    main program entry, responsible for multiprocessing distributed
     :return:
     """
     args = parser.parse_args()
@@ -124,10 +124,10 @@ def main():
 
 def main_worker(gpu, ngpus_per_node, args):
     """
-    multiprocessing distributed process control: loading model, dataset, training and testing, saving checkpoint.
-    :param gpu: current gpu.
-    :param ngpus_per_node: the number of gpus of one machine.
-    :param args: program parameters.
+    multiprocessing distributed process control: loading model, dataset, training and testing, saving checkpoint
+    :param gpu: current gpu
+    :param ngpus_per_node: the number of gpus of one machine
+    :param args: program parameters
     :return:
     """
     args.gpu = gpu
@@ -155,21 +155,15 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # create model
     print("=> creating model")
-    # model = swint(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    model = vit(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    # model = resnet18(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    # model = efficientb3(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    # model = Dronet(img_channels=3, num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    # model = shufflenet_v2(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
-    # model = mobilenet_v3(num_classes1=args.num_classes1, num_classes2=args.num_classes2)
+    model = mobilenet_v3(num_classes1=args.num_classes1)
+    # model = resnet18(num_classes1=args.num_classes1)
+    # model = vit(num_classes1=args.num_classes1)
+    # model = swint(num_classes1=args.num_classes1
 
-    # swint: flops: 2977.49 M, params: 19.01 M
-    # vit: flops: 9421.68 M, params: 47.99 M
-    # resnet18: flops: 1823.63 M, params: 11.28 M
-    # efficient: flops: 1018.41 M, params: 11.01 M
-    # dronet: flops: 69.82 M, params: 1.58 M
-    # shufflenetv2: flops: 151.89 M, params: 1.46 M
     # mobilenetv3: flops: 60.98 M, params: 1.04 M
+    # resnet18: flops: 1823.63 M, params: 11.28 M
+    # vit: flops: 9421.68 M, params: 47.99 M
+    # swint: flops: 2977.49 M, params: 19.01 M
     flops, params = profile(model,
                             (torch.randn((1, 3, 224, 224)),))
     print('flops: ', flops, 'params: ', params)
@@ -194,7 +188,7 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
         # should always set the single device scope, otherwise,
-        # DistributedDataParallel will use all available devices.
+        # DistributedDataParallel will use all available devices
         if args.gpu is not None:
             torch.cuda.set_device(args.gpu)
             model.cuda(args.gpu)
@@ -237,7 +231,7 @@ def main_worker(gpu, ngpus_per_node, args):
             if args.gpu is None:
                 checkpoint = torch.load(args.resume)
             else:
-                # Map model to be loaded to specified single gpu.
+                # Map model to be loaded to specified single gpu
                 loc = 'cuda:{}'.format(args.gpu)
                 checkpoint = torch.load(args.resume, map_location=loc)
             args.start_epoch = checkpoint['epoch']
@@ -277,8 +271,8 @@ def main_worker(gpu, ngpus_per_node, args):
         normalize,
     ])
     # load dataset
-    train_dataset = DronetTrainDataset(dataset_path=args.dataset_path, transform=train_transform, input_len=args.len - 1)
-    test_dataset = DronetTestDataset(dataset_path=args.dataset_path, transform=val_transform, input_len=args.len - 1)
+    train_dataset = BSTrainDataset(dataset_path=args.dataset_path, class_path=args.class_path, transform=train_transform)
+    test_dataset = BSTestDataset(dataset_path=args.dataset_path, class_path=args.class_path, transform=val_transform)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -352,17 +346,17 @@ def main_worker(gpu, ngpus_per_node, args):
 
 def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_scheduler, epoch, args):
     """
-    training process for one epoch.
-    :param train_loader: train dataloader.
-    :param model: baseline model (dronet etc).
-    :param criterion1: ce.
-    :param criterion2: mse.
-    :param criterion: uncertainty loss.
-    :param optimizer: adamw.
-    :param lr_scheduler: CosineAnnealingWarmRestarts.
-    :param epoch: 120.
+    training process for one epoch
+    :param train_loader: train dataloader
+    :param model: baseline model
+    :param criterion1: ce
+    :param criterion2: mse
+    :param criterion: uncertainty loss
+    :param optimizer: adamw
+    :param lr_scheduler: CosineAnnealingWarmRestarts
+    :param epoch: 120
     :param args:
-    :return: total loss and three head losses.
+    :return: total loss and three task losses
     """
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -382,16 +376,12 @@ def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_
     model.train()
 
     end = time.time()
-    for i, (images, label1, label2, label3) in enumerate(train_loader):
+    for i, (images, label1) in enumerate(train_loader):
         if args.gpu is not None:
             # b,3,224,224
             images = images.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
             # b
             label1 = label1.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
-            # b
-            label2 = label2.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
-            # b,2
-            label3 = label3.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
 
         # b,3,224,224
         output1 = model(images)
@@ -427,11 +417,11 @@ def train(train_loader, model, criterion1, criterion2, criterion, optimizer, lr_
 
 def validate(val_loader, model, args):
     """
-    validating process for one epoch.
-    :param val_loader: test dataloader.
-    :param model: baseline model (dronet etc).
+    validating process for one epoch
+    :param val_loader: test dataloader
+    :param model: baseline model
     :param args:
-    :return: three head accuracies.
+    :return: three task accuracies
     """
     total_correct_label = 0
     total_correct_target = 0
@@ -442,16 +432,12 @@ def validate(val_loader, model, args):
     model.eval()
 
     with torch.no_grad():
-        for i, (images, label1, label2, label3) in enumerate(val_loader):
+        for i, (images, label1) in enumerate(val_loader):
             if args.gpu is not None:
                 # b,3,224,224
                 images = images.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
                 # b
                 label1 = label1.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
-                # b
-                label2 = label2.cuda(args.gpu, non_blocking=True).to(dtype=torch.int64)
-                # b,2
-                label3 = label3.cuda(args.gpu, non_blocking=True).to(dtype=torch.float32)
 
             # b,3,224,224
             output1 = model(images)
@@ -476,11 +462,11 @@ def validate(val_loader, model, args):
 
 def accuracy(output, target, topk=(1,)):
     """
-    computes the accuracy over the k top predictions for the specified values of k.
-    :param output: actual output of the model.
-    :param target: ground truth label.
+    computes the accuracy over the k top predictions for the specified values of k
+    :param output: actual output of the model
+    :param target: ground truth label
     :param topk:
-    :return: top-k acc.
+    :return: top-k acc
     """
     with torch.no_grad():
         maxk = max(topk)
@@ -499,10 +485,10 @@ def accuracy(output, target, topk=(1,)):
 
 def angle_diff(output, target):
     """
-    compute Mean Absolute Angle Error(MAAE) between prediction and label.
-    :param output: actual output of the model.
-    :param target: ground truth label.
-    :return: Mean Absolute Angle Error(MAAE) within a batch.
+    compute Mean Absolute Angle Error between prediction and label
+    :param output: actual output of the model
+    :param target: ground truth label
+    :return: Mean Absolute Angle Error within a batch
     """
     # b,2->b,1
     output_tan = output[:, 0] / output[:, 1]
@@ -544,8 +530,8 @@ def angle_diff(output, target):
 
 def save_checkpoint(state, label_is_best, target_is_best, angle_avg_is_best, args):
     """
-    save checkpoint.
-    :param state: model parameters.
+    save checkpoint
+    :param state: model parameters
     :param label_is_best:
     :param target_is_best:
     :param angle_avg_is_best:
