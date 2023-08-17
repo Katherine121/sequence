@@ -9,7 +9,7 @@ from torchvision.models import MobileNet_V3_Small_Weights, ResNet18_Weights, ViT
 class mobilenet_v3(nn.Module):
     def __init__(self, num_classes1):
         """
-        MobileNetV3.
+        MobileNetV3
         :param num_classes1: output dimension
         """
         super(mobilenet_v3, self).__init__()
@@ -31,7 +31,7 @@ class mobilenet_v3(nn.Module):
 class resnet18(nn.Module):
     def __init__(self, num_classes1):
         """
-        ResNet18.
+        ResNet18
         :param num_classes1: output dimension
         """
         super(resnet18, self).__init__()

@@ -25,19 +25,19 @@ def get_subsequent_mask(seq):
     return subsequent_mask
 
 
-class SequenceFeatureEncoder(nn.Module):
+class FeatureEnhanceModule(nn.Module):
     def __init__(self, backbone):
         """
-        Sequence Feature Encoder
-        :param backbone: backbone of Sequence Feature Encoder (MobileNetV3 small)
+        Feature Enhance Module
+        :param backbone: backbone of Feature Enhance Module (MobileNetV3 small)
         """
-        super(SequenceFeatureEncoder, self).__init__()
+        super(FeatureEnhanceModule, self).__init__()
         self.backbone = backbone
         self.backbone.classifier = nn.Identity()
 
     def forward(self, x):
         """
-        forward pass of Sequence Feature Encoder
+        forward pass of Feature Enhance Module
         :param x: the provided input tensor
         :return: the visual semantic features of input
         """
@@ -142,12 +142,12 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 
-class CrossAttentionMixer(nn.Module):
+class CrossAttentionModule(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout=0.):
         """
-        Cross Attention Mixer.
+        Cross Attention Module.
         :param dim: input dimension.
-        :param depth: depth of Cross Attention Mixer (Transformer Decoder).
+        :param depth: depth of Cross Attention Module (Transformer Decoder).
         :param heads: the number of heads in Masked MSA.
         :param dim_head: dimension of one head.
         :param mlp_dim: hidden dimension in FeedForward.
@@ -163,7 +163,7 @@ class CrossAttentionMixer(nn.Module):
 
     def forward(self, x, mask):
         """
-        forward pass of Cross Attention Mixer
+        forward pass of Cross Attention Module
         :param x: the provided input tensor
         :param mask: padding and subsequent mask
         :return: the visual semantic features of input
@@ -181,13 +181,13 @@ class ARTransformer(nn.Module):
                  dropout=0., emb_dropout=0.):
         """
         ARTransformer
-        :param backbone: backbone of Sequence Feature Encoder (MobileNetV3 small)
-        :param extractor_dim: output dimension of Sequence Feature Encoder
+        :param backbone: backbone of Feature Enhance Module (MobileNetV3 small)
+        :param extractor_dim: output dimension of Feature Enhance Module
         :param num_classes1: output dimension of ARTransformer
         :param num_classes2: output dimension of ARTransformer
         :param len: input sequence length of ARTransformer
-        :param dim: input dimension of Cross Attention Mixer
-        :param depth: depth of Cross Attention Mixer
+        :param dim: input dimension of Cross Attention Module
+        :param depth: depth of Cross Attention Module
         :param heads: the number of heads in Multi-Head Self Attention layer
         :param dim_head: dimension of one head
         :param mlp_dim: hidden dimension in FeedForward layer
@@ -195,7 +195,7 @@ class ARTransformer(nn.Module):
         :param emb_dropout: dropout rate after position embedding
         """
         super().__init__()
-        self.extractor = SequenceFeatureEncoder(backbone)
+        self.extractor = FeatureEnhanceModule(backbone)
         self.extractor_dim = extractor_dim
         self.dim = dim
         self.len = len
@@ -207,7 +207,7 @@ class ARTransformer(nn.Module):
         self.pos_embedding = nn.Parameter(torch.randn(1, self.len, dim))
         self.dropout = nn.Dropout(emb_dropout)
 
-        self.transformer = CrossAttentionMixer(dim, depth, heads, dim_head, mlp_dim, dropout)
+        self.transformer = CrossAttentionModule(dim, depth, heads, dim_head, mlp_dim, dropout)
 
         self.mlp_head = nn.Linear(dim, 2 * dim)
         self.head_label = nn.Sequential(
